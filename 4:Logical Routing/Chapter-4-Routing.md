@@ -2,7 +2,7 @@
 **Table Of Contents**
 
 <!--ts-->
-   * 4 [NSX-T Routing](#4-nsx-t-logical-routing)
+   * [4 - NSX-T Routing](#4-nsx-t-logical-routing)
 
 # 4 NSX-T Logical Routing
 
