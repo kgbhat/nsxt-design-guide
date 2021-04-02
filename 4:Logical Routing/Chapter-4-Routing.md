@@ -28,6 +28,23 @@
          * [4.8.1 - Single NVDS Bare Metal configuration with 2 Pnics](#4812-single-n-vds-bare-metal-configuration-with-2-pnics)
          * [4.8.2 - Single NVDS Bare Metal configuration with 6 Pnics](#4813-single-n-vds-bare-metal-configuration-with-six-pnics)
        * [4.8.2 - VM Edge Node](#482-vm-edge-node)
+         * [4.8.2.1	- Multiple N-VDS per Edge VM Configuration – NSX-T 2.4 or Older ](#4821-multiple-n-vds-per-edge-vm-configuration--nsx-t-24-or-older)
+         * [4.8.2.2	- Single N-VDS Based Configuration - Starting with NSX-T 2.5 release](#4822-single-n-vds-based-configuration---starting-with-nsx-t-25-release)
+         *  [4.8.2.3 - VLAN Backed Service Interface on Tier-0 or Tier-1 Gateway](#4823-vlan-backed-service-interface-on-tier-0-or-tier-1-gateway)
+        * [4.8.3 - Edge Cluster](#483-edge-cluster)
+        * [4.8.4 - Failure Domain](#484-failure-domain)
+     * [4.9 - Other Network Services](#49-other-network-services)
+       * [4.9.1 - Unicast Reverse Path Forwarding](#491-unicast-reverse-path-forwarding-urpf)
+       * [4.9.2 - Network Address Translation](#492-network-address-translation)
+       * [4.9.3 - DHCP Services](#493-dhcp-services)
+       * [4.9.4 - Metadata Proxy Services](#494-metadata-proxy-service)
+       * [4.9.5 - Gateway Firewall Service](#495-gateway-firewall-services)
+       * [4.9.6 - Proxy ARP](#496-proxy-arp)
+     * [4.10 - Topology Consideration](#410-topology-consideration)
+       * [4.10.1 - Supported Topology](#4101-supported-topologies)
+       * [4.10.2 - Unsupported Topology](#4102-unsupported-topologies)
+
+
 # 4 NSX-T Logical Routing
 
 The logical routing capability in the NSX-T platform provides the ability to interconnect both virtual and physical workloads deployed in different logical L2 networks. NSX-T enables the creation of network elements like segments (Layer 2 broadcast domains) and gateways (routers) in software as logical constructs and embeds them in the hypervisor layer, abstracted from the underlying physical hardware. Since these network elements are logical entities, multiple gateways can be created in an automated and agile fashion.
@@ -1168,3 +1185,474 @@ Figure 4‑41: Bare metal Edge with six pNICs - Same N-VDS for Overlay and Exter
 
 
 ### 4.8.2 VM Edge Node
+
+NSX-T VM Edge in VM form factor can be installed using an OVA, OVF, or ISO file. NSX-T Edge VM is only supported on ESXi host. 
+
+An NSX-T Edge VM has four internal interfaces: eth0, fp-eth0, fp-eth1, and fp-eth2. Eth0 is reserved for management, while the rest of the interfaces are assigned to DPDK Fast Path. These interfaces are allocated for external connectivity to TOR switches and for NSX-T overlay tunneling. There is complete flexibility in assigning Fast Path interfaces (fp-eth) for overlay or external connectivity. As an example, fp-eth0 could be assigned for overlay traffic with fp-eth1, fp-eth2, or both for external traffic.
+
+There is a default teaming policy per N-VDS that defines how the N-VDS balances traffic across its uplinks. This default teaming policy can be overridden for VLAN segments only using “named teaming policy”. To develop desired connectivity (e.g., explicit availability and traffic engineering), more than one N-VDS per Edge node may be required. Each N-VDS instance can have a unique teaming policy, allowing for flexible design choices. 
+
+
+
+#### 4.8.2.1 Multiple N-VDS per Edge VM Configuration – NSX-T 2.4 or Older 
+
+The “three N-VDS per Edge VM design” as commonly called has been deployed in production. This section briefly covers the design, so the reader does not miss the important decision which design to adopt based on NSX-T release target. 
+
+The multiple N-VDS per Edge VM design recommendation is valid regardless of the NSX-T release. This design must be followed if the deployment target is NSX-T release 2.4 or older. The design recommendation is still completely applicable and viable to Edge VM deployment running NSX-T 2.5 release. In order to simplify consumption for the new design recommendation, the pre-2.5 release design has been moved to Appendix 5. The design choices that moved to appendix covers
+
+-   2 pNICs bare metal design necessitating straight through LAG
+    topology
+-   Edge clustering design consideration for bare metal
+-   4 pNICs bare metal design added to support existing deployment
+-   Edge node design with 2 and 4 pNICs
+
+It’s a mandatory to adopt this recommendation for NSX-T release up to 2.5.  The newer design as described in section 7.4.2.3 will not operate properly if adopted in release before NSX-T 2.5.   In addition, readers are highly encouraging to read the appendix section 5 to appreciate the new design recommendation.
+
+
+<p align="center">
+    <img src="images/Figure4-42.png">
+</p>
+<p align="center">
+Figure 4‑42: Edge Node VM installed leveraging VDS port groups on a 2 pNIC host
+
+Figure 4-42 shows an ESXi host with two physical NICs. Edges “VM1” is hosted on ESXi host leveraging the VDS port groups, each connected to both TOR switches. This figure also shows three N-VDS, named as “Overlay N-VDS”, “Ext 1 N-VDS”, and “Ext 2 N-VDS”. Three N-VDS are used in this design to ensure that overlay and external traffic use different vNIC of Edge VM. All three N-VDS use the same teaming policy i.e. Failover order with one active uplink.
+
+**VLAN TAG Requirements**
+
+Edge VM deployment shown in figure 4-42 remains valid and is ideal for deployments where only one VLAN is necessary on each vNIC of the Edge VM. However, it doesn’t cover all the deployment use cases. For instance, if a user cannot add service interfaces to connect VLAN backed workloads in above topology as that requires to allow one or more VLANs on the VDS DVPG (distributed virtual port group). If these DVPGs are configured to allow multiple VLANs, no change in DVPG configuration is needed when new service interfaces (workload VLAN segments) are added. 
+
+When these DVPGs are configured to carry multiple VLANs, a VLAN tag is expected from Edge VM for traffic belonging to different VLANs.
+ 
+VLAN tags can be applied to both overlay and external traffic at either N-VDS level or VSS/VDS level. On N-VDS, overlay and external traffic can be tagged using the following configuration:
+-   Uplink Profile where the transport VLAN can be set which will tag
+    overlay traffic only
+-   VLAN segment connecting Tier-0 gateway to external devices- This
+    configuration will apply a VLAN tag to the external traffic only.
+
+Following are the three ways to configure VLAN tagging on VSS or VDS:
+-   EST (External Switch Tagging)
+-   VST (Virtual Switch Tagging)
+-   VGT (virtual guest tagging)
+
+For the details where each tagging can be applicable refer to following resources:
+
+https://kb.vmware.com/s/article/1003806#vgtPoints
+
+https://www.vmware.com/pdf/esx3_VLAN_wp.pdf 
+
+
+Figure 4-43 shows an Edge node hosted on an ESXi host. In this example, VLAN tags are applied to both overlay and external traffic using uplink profile and VLAN segments connecting Tier-0 Gateway to physical infrastructure respectively. As a result, VDS port groups that provides connectivity to Edge VM receive VLAN tagged traffic. Hence, they should be configured to allow these VLANs in VGT (Virtual guest tagging) mode.
+Uplink profile used for “Overlay N-VDS” has a transport VLAN defined as VLAN 200. This will ensure that the overlay traffic exiting vNIC2 has an 802.1Q VLAN 200 tag. Overlay traffic received on VDS port group “Transport PG” is VLAN tagged. That means that this Edge VM vNIC2 will have to be attached to a port group configured for Virtual Guest Tagging (VGT).
+Tier-0 Gateway connects to the physical infrastructure using “External-1” and “External-2” interface leveraging VLAN segments “External VLAN Segment 300” and “External VLAN Segment 400” respectively. In this example, “External Segment 300” and “External Segment 400” are configured with a VLAN tag, 300 and 400 respectively. External traffic received on VDS port groups “Ext1 PG” and Ext2 PG” is VLAN tagged and hence, these port groups should be configured in VGT (Virtual guest tagging) mode and allow those specific VLANs.
+
+
+
+<p align="center">
+    <img src="images/Figure4-43.png">
+</p>
+<p align="center">
+Figure 4‑43: VLAN tagging on Edge node
+
+#### 4.8.2.2 Single N-VDS Based Configuration - Starting with NSX-T 2.5 release
+
+Starting NSX-T 2.4 release, Edge nodes support Multi-TEP configuration to load balance overlay traffic for segments/logical switches. Similar to the bare metal Edge one N-VDS design, Edge VM also supports same N-VDS for overlay and external traffic. 
+
+Even though this multi-TEP feature was available in NSX-T 2.4 release, the release that supports this design is NSX-T 2.5 release onward. It is mandatory to use the multiple N-VDS design for release NSX-T 2.4 or older. 
+
+Figure 4-44 shows an Edge VM with one N-VDS i.e. “Overlay and External N-VDS”, to carry both overlay and external traffic. Multi-TEP is configured to provide load balancing for overlay traffic on “Uplink1” and “Uplink2”. “Uplink1” and “Uplink2” are mapped to use vNIC2 and vNIC3 respectively.  Based on this teaming policy, overlay traffic will be sent and received on both vNIC2 and vNIC3 of the Edge VM. Notice that, both TEP IPs use same transport VLAN i.e. VLAN 200 which is configured on both top of rack switches.
+
+Similar to Figure 4-43, Tier-0 Gateway for BGP peering connects to the physical infrastructure leveraging VLAN segments “External VLAN Segment 300” and “External VLAN Segment 400” respectively. In this example, “External VLAN Segment 300” and “External VLAN Segment 400” are configured with a VLAN tag, 300 and 400 respectively. External traffic received on VDS port groups “Trunk1 PG” and Trunk2 PG” is VLAN tagged and hence, these port groups should be configured in VGT (Virtual guest tagging) mode and allow those specific VLANs.
+
+Named teaming policy is also configured to load balance external traffic. Figure 4-28 also shows named teaming policy configuration used for this topology.  "External VLAN segment 300" is configured to use a named teaming policy “Vlan300-Policy” that sends traffic from this VLAN on “Uplink1” (vNIC2 of Edge VM). "External VLAN segment 400" is configured to use a named teaming policy “Vlan400-Policy” that sends traffic from this VLAN on “Uplink2” (vNIC3 of Edge VM). Based on this named teaming policy, North-South or external traffic from “External VLAN Segment 300” will always be sent and received on vNIC2 of the Edge VM. North-South or external traffic from “External VLAN Segment 400” will always be sent and received on vNIC3 of the Edge VM. 
+
+Overlay or external traffic from Edge VM is received by the VDS DVPGs “Trunk1 PG” and “Trunk2 PG”. Teaming policy used on the VDS port group level defines how this overlay and external traffic coming from Edge node VM exits the hypervisor. For instance, “Trunk1 PG” is configured to use active uplink as “VDS-Uplink1” and standby uplink as “VDS-Uplink2”. “Trunk2 PG” is configured to use active uplink as “VDS-Uplink2” and standby uplink as “VDS-Uplink1”.
+
+This configuration ensures that the traffic sent on “External VLAN Segment 300” i.e. VLAN 300 always uses vNIC2 of Edge VM to exit Edge VM. This traffic then uses “VDS-Uplink1” (based on “Trunk1 PG” configuration) and is sent to the left TOR switch. Similarly, traffic sent on VLAN 400 uses “VDS-Uplink2” and is sent to the TOR switch on the right.
+
+
+<p align="center">
+    <img src="images/Figure4-44.png">
+</p>
+<p align="center">
+Figure 4‑44: VLAN tagging on Edge node
+
+Starting with NSX-T release 2.5, single N-VDS deployment mode is recommended for both bare metal and Edge VM. Key benefits of single N-VDS deployment are:
+
+-   Consistent deployment model for both Edge VM and bare metal Edge
+    with one N-VDS carrying both overlay and external traffic.
+-   Load balancing of overlay traffic with Multi-TEP configuration.
+-   Ability to distribute external traffic to specific TORs for distinct
+    point to point routing adjacencies.
+-   No change in DVPG configuration when new service interfaces
+    (workload VLAN segments) are added.
+-   Deterministic North South traffic pattern.
+
+Service interface were introduced earlier, following section focusses on how service interfaces work in the topology shown in Figure 4-45.
+
+#### 4.8.2.3 VLAN Backed Service Interface on Tier-0 or Tier-1 Gateway
+
+Service interface is an interface connecting VLAN backed segments/logical switch to provide connectivity to VLAN backed physical or virtual workloads. This interface acts as a gateway for these VLAN backed workloads and is supported both on Tier-0 and Tier-1 Gateways configured in active/standby HA configuration mode. 
+
+Service interface is realized on Tier-0 SR or Tier-1 SR. This implies that traffic from a VLAN workload needs to go to Tier-0 SR or Tier-1 SR to consume any centralized service or to communicate with any other VLAN or overlay segments. Tier-0 SR or Tier-1 SR is always hosted on Edge node (bare metal or Edge VM).  
+
+Figure 4-45 shows a VLAN segment “VLAN Seg-500” that is defined to provide connectivity to the VLAN workloads. “VLAN Seg-500” is configured with a VLAN tag of 500. Tier-0 gateway has a service interface “Service Interface-1” configured leveraging this VLAN segment and acts as a gateway for VLAN workloads connected to this VLAN segment. In this example, if the workload VM, VM1 needs to communicate with any other workload VM on overlay or VLAN segment, the traffic will be sent from the compute hypervisor (ESXi-2) to the Edge node (hosted on ESXi-1). This traffic is tagged with VLAN 500 and hence the DVPG receiving this traffic (“Trunk-1 PG” or “Trunk-2 PG”) must be configured in VST (Virtual Switch Tagging) mode. Adding more service interfaces on Tier-0 or Tier-1 is just a matter of making sure that the specific VLAN is allowed on DVPG (“Trunk-1 PG” or “Trunk-2 PG”).
+
+
+<p align="center">
+    <img src="images/Figure4-45.png">
+</p>
+<p align="center">
+Figure 4‑45: VLAN tagging on Edge node with Service Interface
+
+Note: Service interface can also be connected to overlay segments for standalone load balancer use cases. This is explained in Load balancer Chapter 6
+
+### 4.8.3 Edge Cluster
+
+An Edge cluster is a group of Edge transport nodes. It provides scale out, redundant, and high-throughput gateway functionality for logical networks. Scale out from the logical networks to the Edge nodes is achieved using ECMP. NSX-T 2.3 introduced the support for heterogeneous Edge nodes which facilitates easy migration from Edge node VM to bare metal Edge node without reconfiguring the logical routers on bare metal Edge nodes. There is a flexibility in assigning Tier-0 or Tier-1 gateways to Edge nodes and clusters. Tier-0 and Tier-1 gateways can be hosted on either same or different Edge clusters. 
+
+
+<p align="center">
+    <img src="images/Figure4-46.png">
+</p>
+<p align="center">
+Figure 4‑46: Edge Cluster with Tier-0 and Tier-1 Services
+
+Depending upon the services hosted on the Edge node and their usage, an Edge cluster could be dedicated simply for running centralized services (e.g., NAT). Figure 4-47 shows two clusters of Edge nodes. Edge Cluster 1 is dedicated for Tier-0 gateways only and provides external connectivity to the physical infrastructure. Edge Cluster 2 is responsible for NAT functionality on Tier-1 gateways. 
+
+
+<p align="center">
+    <img src="images/Figure4-47.png">
+</p>
+<p align="center">
+Figure 4‑47: Multiple Edge Clusters with Dedicated Tier-0 and Tier-1 Services
+
+There can be only one Tier-0 gateway per Edge node; however, multiple Tier-1 gateways can be hosted on one Edge node. 
+
+A Tier-0 gateway supports a maximum of eight equal cost paths, thus a maximum of eight Edge nodes are supported for ECMP. Edge nodes in an Edge cluster run Bidirectional Forwarding Detection (BFD) on both tunnel and management networks to detect Edge node failure. The BFD protocol provides fast detection of failure for forwarding paths or forwarding engines, improving convergence. Edge VMs support BFD with minimum BFD timer of 500ms with three retries, providing a 1.5 second failure detection time. Bare metal Edges support BFD with minimum BFD TX/RX timer of 50ms with three retries which implies 150ms failure detection time. 
+
+
+### 4.8.4 Failure Domain
+
+Failure domain is a logical grouping of Edge nodes within an Edge Cluster. This feature is introduced in NSX-T 2.5 release and can be enabled on Edge cluster level via API configuration. Please refer to this API configuration available in Appendix 3.
+
+As discussed in high availability section, a Tier-1 gateway with centralized services runs on Edge nodes in active/standby HA configuration mode. When a user assigns a Tier-1 gateway to an Edge cluster, NSX manager automatically chooses the Edge nodes in the cluster to run the active and standby Tier-1 SR. The auto placement of Tier-1 SRs on different Edge nodes considers several parameters like Edge capacity, active/standby HA state etc. 
+Failure domains compliment auto placement algorithm and guarantee service availability in case of a rack failure. Active and standby instance of a Tier-1 SR always run in different failure domains.
+
+Figure 4-48 shows an edge cluster comprised of four Edge nodes, EN1, EN2, EN3 and EN4. EN1 and EN2 connected to two TOR switches in rack 1 and EN3 and EN4 connected to two TOR switches in rack 2. Without failure domain, a Tier-1 SR could be auto placed in EN1 and EN2. If rack1 fails, both active and standby instance of this Tier-1 SR fail as well. 
+EN1 and EN2 are configured to be a part of failure domain 1, while EN3 and EN4 are in failure domain 2. When a new Tier-1 SR is created and if active instance of that Tier-1 is hosted on EN1, then the standby Tier-1 SR will be instantiated in failure domain 2 (EN3 or EN4).
+
+
+<p align="center">
+    <img src="images/Figure4-48.png">
+</p>
+<p align="center">
+Figure 4‑48: Failure Domains
+
+To ensure that all Tier-1 services are active on a set of edge nodes, a user can also enforce that all active Tier-1 SRs are placed in one failure domain. This configuration is supported for Tier-1 gateway in preemptive mode only.
+
+
+
+## 4.9 Other Network Services
+
+### 4.9.1 Unicast Reverse Path Forwarding (uRPF)
+
+A router forwards packets based on the value of the destination IP address field that is present in the IP header. The source IP address field is generally not used when forwarding a packet on a network (except when networks implement source-based routing). 
+
+Unicast Reverse Path Forwarding is defined in RFC 2827 and 3704. Prevent packets with spoofed source IP address to be forwarded in the network. uURPF is generally enabled on a router per interface and not globally. A uRPF enabled router  A router will inspect the source IP address of theevery packet  of each packet received on an interface. It will validates that packets are coming from a legitimate source by inspecting the routing table. The This protection prevents spoofed source IP address attacks that are commonly used by sending packets with random source IP addresses. When a packet arrivearrives on an interface, aA The router will verify if the receiving that specific interface would be used to reach the source of the packet.t  It will discard the packets if the interfaces are different. 
+
+This protection prevents spoofed source IP address attacks that are commonly used by sending packets with random source IP addresses.
+
+Figure 4-49 diagrams a physical network with URPF enabled on the core router. 
+
+1.  The core router receives a packet with a source IP address of
+    10.1.1.1 on interface ethernet0/2.
+2.  The core router has the URPF feature enabled on all its interfaces
+    and will check in its routing table if the source IP address of the
+    packet would be routed through interface ethernet 0/2. In this case,
+    10.1.1.1 is the source IP address present in the IP header. The core
+    router has a longest prefix match for 10.1.1.0/24 via interface
+    ethernet 0/0.
+3.  Since the packet does not come from the interface ethernet 0/0, the
+    packet will be discarded.
+
+
+
+<p align="center">
+    <img src="images/Figure4-49.png">
+</p>
+<p align="center">
+Figure 4‑49: uRPF
+
+In NSX-T, URPF is enabled by default on external, internal and service interfaces. From a security standpoint, it is a best practice to keep uRPF enabled on these interfaces. uRPF is also recommended in architectures that leverage ECMP. On intra-tier and router link interfaces, a simplified anti-spoofing mechanism is implemented. It is checking that a packet is never sent back to the interface the packet was received on.
+
+It is possible to disable uRPF in complex routing architecture where asymmetric routing exists.
+As of NSX-T 3.0, it is possible to disable or enable URPF on the Policy UI except for downlink interfaces where the administrator would need to use the Manager UI or Policy API.
+
+
+## 4.9.2 Network Address Translation
+
+Users can enable NAT as a network service on NSX-T. This is a centralized service which can be enabled on both Tier-0 and Tier-1 gateways. 
+
+Supported NAT rule types include:
+
+-   **Source NAT (SNAT)**: Source NAT translates the source IP of the
+    outbound packets to a known public IP address so that the
+    application can communicate with the outside world without using its
+    private IP address. It also keeps track of the reply.
+
+-   **Destination NAT (DNAT)**: DNAT allows for access to internal
+    private IP addresses from the outside world by translating the
+    destination IP address when inbound communication is initiated. It
+    also takes care of the reply. For both SNAT and DNAT, users can
+    apply NAT rules based on 5 tuple match criteria.
+
+-   **Reflexive NAT:** Reflexive NAT rules are stateless ACLs which must
+    be defined in both directions. These do not keep track of the
+    connection. Reflexive NAT rules can be used in cases where stateful
+    NAT cannot be used due to asymmetric paths (e.g., user needs to
+    enable NAT on active/active ECMP routers).
+
+Table 4‑3 summarizes NAT rules and usage restrictions.
+
+<table>
+<tbody>
+<tr class="odd">
+<td><strong>NAT Rules Type</strong></td>
+<td><strong>Type</strong></td>
+<td><strong>Specific Usage Guidelines</strong></td>
+</tr>
+<tr class="even">
+<td>Stateful</td>
+<td><p>Source NAT (SNAT)</p>
+<p>Destination NAT (DNAT)</p></td>
+<td>Can be enabled on both Tier-0 and Tier-1 gateways</td>
+</tr>
+<tr class="odd">
+<td>Stateless</td>
+<td>Reflexive NAT</td>
+<td>Can be enabled on Tier-0 gateway; generally used when the Tier-0 is in active/active mode.</td>
+</tr>
+</tbody>
+</table>
+
+Table 4‑3: NAT Usage Guideline
+
+Table 4-4 summarizes the use cases and advantages of running NAT on
+Tier-0 and Tier-1 gateways.
+
+<table>
+<tbody>
+<tr class="odd">
+<td><strong>Gateway Type</strong></td>
+<td><strong>NAT Rule Type</strong></td>
+<td><strong>Specific Usage Guidelines</strong></td>
+</tr>
+<tr class="even">
+<td>Tier-0</td>
+<td>Stateful</td>
+<td><p>Recommended for PAS/PKS deployments.</p>
+<p>E-W routing between different tenants remains completely distributed.</p></td>
+</tr>
+<tr class="odd">
+<td>Tier-1</td>
+<td>Stateful</td>
+<td><p>Recommended for high throughput ECMP topologies.</p>
+<p>Recommended for topologies with overlapping IP address space.</p></td>
+</tr>
+</tbody>
+</table>
+
+Table 4‑4: Tier-0 and Tier-1 NAT use cases
+
+**NAT Service Router Placement**
+
+As a centralized service, whenever NAT is enabled, a service component or SR must be instantiated on an Edge cluster. In order to configure NAT, specify the Edge cluster where the service should run; it is also possible the NAT service on a specific Edge node pair. If no specific Edge node is identified, the platform will perform auto placement of the services component on an Edge node in the cluster using a weighted round robin algorithm.
+
+
+## 4.9.3 DHCP Services
+
+NSX-T provides both DHCP relay and DHCP server functionality. DHCP relay can be enabled at the gateway level and can act as relay between non-NSX managed environment and DHCP servers. DHCP server functionality can be enabled to service DHCP requests from VMs connected to NSX-managed segments. DHCP server functionality is a stateful service and must be bound to an Edge cluster or a specific pair of Edge nodes as with NAT functionality.
+
+## 4.9.4 Metadata Proxy Service
+
+With a metadata proxy server, VM instances can retrieve instance-specific metadata from an OpenStack Nova API server. This functionality is specific to OpenStack use-cases only. Metadata proxy service runs as a service on an NSX Edge node. For high availability, configure metadata proxy to run on two or more NSX Edge nodes in an NSX Edge cluster.
+
+## 4.9.5 Gateway Firewall Services
+
+Gateway Firewall service can be enabled on the Tier-0 and Tier-1 gateway
+for North-South firewalling. Table 4-5 summarizes Gateway Firewalling
+usage criteria.
+
+
+| **Gateway Firewall**                     |          **Specific Usage Guidelines**                                                                  |
+|----------------------|--------------------------------------------------------------------------------------------|
+| Stateful             | Can be enabled on both Tier-0 and Tier-1 gateways.                                         |
+| Stateless            | Can be enabled on Tier-0 gateway; generally used when the Tier-0 is in active/active mode. |
+
+
+Table 4‑5: Gateway Firewall Usage Guideline
+
+Since Gateway Firewalling is a centralized service, it needs to run on
+an Edge cluster or a set of Edge nodes. This service is described in
+more detail in the [NSX-T Security Chapter](#_NSX-T_Security).
+
+
+
+
+## 4.9.6 Proxy ARP
+
+Proxy ARP is a method that consist of answering an ARP request on behalf of another host. This method is performed by a layer 3 networking device (usually a router). The purpose is to provide connectivity between 2 hosts when routing wouldn’t be possible for various reasons. 
+
+Proxy ARP in an NSX-T infrastructure can be considered in environments where IP subnets are limited. Proof of concepts and VMware Enterprise PKS environments are usually using Proxy-ARP to simplify the network topology.
+
+For production environment, it is recommended to implement proper routing between a physical fabric and the NSX-T Tier-0 by using either static routes or Border Gateway Protocol with BFD. If proper routing is used between the Tier-0 gateway and the physical fabric, BFD with its sub-second timers will converge faster. In case of failover with proxy ARP, the convergence relies on gratuitous ARP (broadcast) to update all hosts on the VLAN segment with the new MAC Address to use. If the Tier-0 gateway has proxy ARP enabled for 100 IP addresses, the newly active Tier-0 SR needs to send 100 Gratuitous ARP packets.
+
+.
+
+| Edge Node HA     |  **Specific Usage Guidelines**   |
+|------------------|----------------------------------|
+| Active / Standby | Supported                        |
+| Active / Active  | Not supported                    |
+ 
+Table 4‑6: Proxy ARP Support
+
+By enabling proxy-ARP, hosts on the overlay segments and hosts on a VLAN segment can exchange network traffic together without implementing any change in the physical networking fabric. Proxy ARP is automatically enabled when a NAT rule or a load balancer VIP uses an IP address from the subnet of the Tier-0 gateway uplink.
+
+Figure 4-50 presents the logical packet flow between a virtual machine connected to an NSX-T overlay segment and a virtual machine or physical appliance connected to a VLAN segment shared with the NSX-T Tier-0 uplinks.
+
+In this example, the virtual machine connected to the overlay segment initiates networking traffic toward 20.20.20.100.
+
+
+
+<p align="center">
+    <img src="images/Figure4-50.png">
+</p>
+<p align="center">
+Figure 4‑50: Proxy ARP  topology
+
+1.  The virtual machine connected to the overlay segment with an IP
+    address of 172.16.10.10 sends a packet to the physical appliance
+    “SRV01” with an IP address of 20.20.20.100. the local DR hosted on
+    the local hypervisor performs a routing lookup and sends the traffic
+    to the SR.
+
+2.  The SR hosted on an edge node translates the source IP of
+    172.16.10.10 with a value of 20.20.20.10 and sends the traffic to
+    the Tier-0.
+
+3.  Tier-0 SR has proxy ARP enabled on its uplink interface and will
+    send an ARP request (broadcast) on the vlan segment to map the IP
+    address of 20.20.20.100 with the correct MAC address.
+
+4.  The physical appliance “SRV01” answers to that ARP request with an
+    ARP reply.
+
+5.  Tier-0 SR sends the packet to the physical appliance with a source
+    IP of 20.20.20.10 and a destination IP of 20.20.20.100.
+
+6.  The physical appliance “SRV01” receives the packet and sends an ARP
+    broadcast on the VLAN segment to map the IP address of the virtual
+    machine (20.20.20.10) to the corresponding MAC address.
+
+7.  Tier-0 receives the ARP request for 20.20.20.10 (broadcast) and has
+    the proxy ARP feature enabled on its uplink interfaces. It replies
+    to the ARP request with an ARP reply that contains the Tier-0 SR MAC
+    address for the interface uplink.
+
+8.  The physical appliance “SRV01” receives the ARP request and sends a
+    packet on the vlan segment with a source IP of 20.20.20.100 and a
+    destination IP of 20.20.20.10.
+
+9.  The packet is being received by the Tier-0 SR and is being routed to
+    the Tier-1 who does translate the Destination IP of 20.20.20.10 with
+    a value of 172.16.10.10. Packet is sent to the overlay segment and
+    the virtual machine receives it.
+
+It is crucial to note that in this case, the traffic is initiated by the virtual machine which is connected to the overlay segment on the Tier-1. If the initial traffic was initiated by a server on the VLAN segment, a Destination NAT rule would have been required on the Tier-1/Tier-0 since the initial traffic would not match the SNAT rule that has been configured previously.
+
+Figure 4-51 represents an outage on an active Tier-0 gateway with Proxy ARP enabled. The newly active Tier-0 gateway will send a gratuitous ARP to announce the new MAC address to be used by the hosts on the VLAN segment in order to reach the virtual machine connected to the overlay. It is critical to fathom that the newly active Tier-0 will send a Gratuitous ARP for each IP address that are configured for Proxy ARP.
+
+<p align="center">
+    <img src="images/Figure4-51.png">
+</p>
+<p align="center">
+Figure 4‑51: Edge node failover and Proxy ARP.
+
+
+## 4.10 Topology Consideration
+
+This section covers a few of the many topologies that customers can build with NSX-T. NSX-T routing components - Tier-1 and Tier-0 gateways - enable flexible deployment of multi-tiered routing topologies. Topology design also depends on what services are enabled and where those services are provided at the provider or tenant level.
+
+### 4.10.1 Supported Topologies
+
+Figure 4-52 shows three topologies with Tier-0 gateway providing N-S traffic connectivity via multiple Edge nodes. The first topology is single-tiered where Tier-0 gateway connects directly to the segments and provides E-W routing between subnets. Tier-0 gateway provides multiple active paths for N-S L3 forwarding using ECMP. The second topology shows the multi-tiered approach where Tier-0 gateway provides multiple active paths for L3 forwarding using ECMP and Tier-1 gateways as first hops for the segments connected to them. Routing is fully distributed in this multi-tier topology. The third topology shows a multi-tiered topology with Tier-0 gateway configured in Active/Standby HA mode to provide some centralized or stateful services like NAT, VPN etc.
+
+<p align="center">
+    <img src="images/Figure4-52.png">
+</p>
+<p align="center">
+Figure 4‑52: Single tier and multi-tier routing topologies.
+
+As discussed in the two-tier routing section, centralized services can be enabled on Tier-1 or Tier-0 gateway level. Figure 4-53 shows two multi-tiered topologies. The first topology shows centralized services like NAT, load balancer on Tier-1 gateways while Tier-0 gateway provides multiple active paths for L3 forwarding using ECMP. The second topology shows centralized services configured on a Tier-1 and Tier-0 gateway. In NSX-T 2.4 release or earlier, some centralized services are only available on Tier-1 like load balancer and other only on Tier-0 like VPN. Starting NSX-T 2.5 release, below topology can be used where requirement is to use both Load balancer and VPN service on NSX-T. Note that VPN is available on Tier-1 gateways starting NSX-T 2.5 release.
+
+<p align="center">
+    <img src="images/Figure4-53.png">
+</p>
+<p align="center">
+Figure 4‑53: Stateful and Stateless (ECMP) Services Topologies Choices at each tier
+
+
+Figure 4-54 shows a topology with Tier-0 gateways connected back to back. “Tenant-1 Tier-0 Gateway” is configured for a stateful firewall while “Tenant-2 Tier-0 Gateway” has stateful NAT configured. Since stateful services are configured on both “Tenant-1 Tier-0 Gateway” and “Tenant-2 Tier-0 Gateway”, they are configured in Active/Standby high availability mode. The top layer of Tier-0 gateway, "Aggregate Tier-0 Gateway” provides ECMP for North-South traffic. 
+
+Note that only external interfaces should be used to connect a Tier-0 gateway to another Tier-0 gateway. Static routing and BGP are supported to exchange routes between two Tier-0 gateways and full mesh connectivity is recommended for optimal traffic forwarding. 
+
+This topology provides high N-S throughput with centralized stateful services running on different Tier-0 gateways. This topology also provides complete separation of routing tables on the tenant Tier-0 gateway level and allows services that are only available on Tier-0 gateways (like VPN until NSX-T 2.4 release) to leverage ECMP northbound. Note that VPN is available on Tier-1 gateways starting NSX-T 2.5 release. 
+
+NSX-T 3.0 introduces new multi tenancy features such as EVPN and VRF-lite. These features are recommended and suitable for true multi-tenant architecture where stateful services need to be run on multiple layers or Tier-0
+ 
+Full mesh connectivity is recommended for optimal traffic forwarding.
+
+
+<p align="center">
+    <img src="images/Figure4-54.png">
+</p>
+<p align="center">
+Figure 4‑54: Multiple Tier-0 Topologies with Stateful and Stateless (ECMP) Services 
+
+Figure 4-55 shows another topology with Tier-0 gateways connected back to back. “Corporate Tier-0 Gateway” on Edge cluster-1 provides connectivity to the corporate resources (172.16.0.0/16 subnet) learned via a pair of physical routers on the left. This Tier-0 has stateful Gateway Firewall enabled to allow access to restricted users only.
+
+“WAN Tier-0 Gateway” on Edge-Cluster-2 provides WAN connectivity via WAN routers and is also configured for stateful NAT. 
+“Aggregate Tier-0 gateway” on the Edge cluster-3 learns specific routes for corporate subnet (172.16.0.0/16) from “Corporate Tier-0 Gateway” and a default route from “WAN Tier-0 Gateway”. 
+
+“Aggregate Tier-0 Gateway” provides ECMP for both corporate and WAN traffic originating from any segments connected to it or connected to a Tier-1 southbound. 
+Full mesh connectivity is recommended for optimal traffic forwarding.
+
+
+<p align="center">
+    <img src="images/Figure4-55.png">
+</p>
+<p align="center">
+Figure 4‑55: Multiple Tier-0 Topologies with Stateful and Stateless (ECMP) Services 
+
+A Tier-1 gateway usually connects to a Tier-0 gateway but it is possible for some use cases to interconnect it to another Tier-1 gateway using service interfaces (SI) and downlink as depicted in figure 4-56. Static routing must be configured on both Tier-1 gateways in this case as dynamic routing is not supported. The Tier-0 gateway must be aware of the all the overlay segments prefixes to provide connectivity.
+
+
+<p align="center">
+    <img src="images/Figure4-56.png">
+</p>
+<p align="center">
+Figure 4‑56: Supported Topology – T1 gateways interconnected to each other using Service Interface and Downlink 
+
+
+
+### 4.10.2 Unsupported Topologies
+
+While the deployment of logical routing components enables customers to deploy flexible multi-tiered routing topologies, Figure 4-57 presents topologies that are not supported. The topology on the left shows that a tenant Tier-1 gateway cannot be connected directly to another tenant Tier-1 gateway using downlinks exclusively. 
+
+The rightmost topology highlights that a Tier-1 gateway cannot be connected to two different upstream Tier-0 gateways.
+
+<p align="center">
+    <img src="images/Figure4-57.png">
+</p>
+<p align="center">
+Figure 4‑57: Unsupported Topologies
