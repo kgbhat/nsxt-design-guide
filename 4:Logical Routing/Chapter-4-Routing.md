@@ -7,7 +7,27 @@
        * [4.1.1 - Distributed Router (DR)](#411-distributed-router-dr)
        * [4.1.2 - Services Router (SR)](#412-services-router-sr)
      * [4.2 - NSX-T Multi Tier Routing](#42-single-tier-routing)
-
+       * [4.2.1 - Interfaces Types on Tier-1 and Tier-0 Gateway](#421-interfaces-types-on-tier-1-and-tier-0-gateway)
+       * [4.2.2 - Route Types on Tier-0 and Tier-1 Gateways](#422-route-types-on-tier-0-and-tier-1-gateways)
+       * [4.2.3 - Fully Distributed Two Tier Routing](#423-fully-distributed-two-tier-routing)
+     * [4.3 - Routing Capabilities](#43-routing-capabilities)
+       * [4.3.1 - Static Routing](#431-static-routing)
+       * [4.3.2 - Dynamic Routing](#432-dynamic-routing)
+     * [4.4 - VRF Lite](#44-vrf-lite)
+       * [4.4.1 - VRF Lite Generalities](#441-vrf-lite-generalities)
+     * [4.5 - IPv6 Routing Capabilities](#45-ipv6-routing-capabilities)
+     * [4.6 - Services High Availability](#46-services-high-availability)
+       * [4.6.1 - Active/Active](#461-activeactive)
+       * [4.6.2 - Active/Standby](#462-activestandby)
+         * [4.6.2.1 - Graceful Restart and BFD Interaction with Active/Standby](#4621graceful-restart-and-bfd-interaction-with-active)
+       * [4.6.3 - High Availibility Failover triggers](#463-high-availbility-failover-triggers)
+     * [4.7 - Edge Node](#47-edge-node)
+     * [4.8 - Multi-TEP support on Edge Node](#48-multi-tep-support-on-edge-node)
+       * [4.8.1 - Bare Metal Edge Node](#481-bare-metal-edge-node)
+         * [4.8.1 - Management Plane Configuration Choice with Bare metal node](#4811-management-plane-configuration-choices-with-bare-metal-node)
+         * [4.8.1 - Single NVDS Bare Metal configuration with 2 Pnics](#4812-single-n-vds-bare-metal-configuration-with-2-pnics)
+         * [4.8.2 - Single NVDS Bare Metal configuration with 6 Pnics](#4813-single-n-vds-bare-metal-configuration-with-six-pnics)
+       * [4.8.2 - VM Edge Node](#482-vm-edge-node)
 # 4 NSX-T Logical Routing
 
 The logical routing capability in the NSX-T platform provides the ability to interconnect both virtual and physical workloads deployed in different logical L2 networks. NSX-T enables the creation of network elements like segments (Layer 2 broadcast domains) and gateways (routers) in software as logical constructs and embeds them in the hypervisor layer, abstracted from the underlying physical hardware. Since these network elements are logical entities, multiple gateways can be created in an automated and agile fashion.
@@ -190,5 +210,961 @@ To provide redundancy for centralized services and N-S connectivity, it is recom
 
 
 ## 4.2 Multi Tier Routing
-=======
 
+In addition to providing optimized distributed and centralized routing functions, NSX-T supports a multi-tiered routing model with logical separation between different gateways within the NSX-T infrastructure. The top-tier gateway is referred to as a Tier-0 gateway while the bottom-tier gateway is a Tier-1 gateway. This structure gives complete control and flexibility over services and policies. Various stateful services can be hosted on the Tier-1 while the Tier-0 can operate in an active-active manner.
+
+Configuring two tier routing is not mandatory. It can be single tiered as shown in the previous section. Figure 4 10 presents an NSX-T two-tier routing architecture. 
+
+
+<p align="center">
+    <img src="images/Figure4-10.png">
+</p>
+<p align="center">
+Figure 4‑10: Two Tier Routing and Scope of Provisioning
+
+Northbound, the Tier-0 gateway connects to one or more physical routers/L3 switches and serves as an on/off ramp to the physical infrastructure. Southbound, the Tier-0 gateway connects to one or more Tier-1 gateways or directly to one or more segments as shown in North-South routing section. Northbound, the Tier-1 gateway connects to a Tier-0 gateway using a RouterLink port. Southbound, it connects to one or more segments using downlink interfaces.
+
+Concepts of DR/SR discussed in the [section 4.1](#41-single-tier-routing) remain the same for multi-tiered routing. Like Tier-0 gateway, when a Tier-1 gateway is created, a distributed component (DR) of the Tier-1 gateway is intelligently instantiated on the hypervisors and Edge nodes. Before enabling a centralized service on a Tier-0 or Tier-1 gateway, an edge cluster must be configured on this gateway. Configuring an edge cluster on a Tier-1 gateway, instantiates a corresponding Tier-1 services component (SR) on two Edge nodes part of this edge cluster. Configuring an Edge cluster on a Tier-0 gateway does not automatically instantiate a Tier-0 service component (SR), the service component (SR) will only be created on a specific edge node along with the external interface creation. 
+
+Unlike the Tier-0 gateway, the Tier-1 gateway does not support northbound connectivity to the physical infrastructure. A Tier-1 gateway can only connect northbound to:
+•	a Tier-0 gateway,
+•	a service port, this is used to connect a one-arm load-balancer to a segment. More details are available in Chapter 6.
+
+Note that connecting Tier-1 to Tier-0 is a one click configuration or one API call configuration regardless of components instantiated (DR and SR) for that gateway. 
+
+### 4.2.1 Interfaces Types on Tier-1 and Tier-0 Gateway
+
+External and Service interfaces were previously introduced in the services router section. Figure 4 11 shows these interfaces types along with a new “RouterLink” interface in a two-tiered topology.
+
+<p align="center">
+    <img src="images/Figure4-11.png">
+</p>
+<p align="center">
+Figure 4‑11: Anatomy of Components with Logical Routing
+
+-   **External Interface:** Interface connecting to the physical infrastructure/router. Static routing and BGP are supported on this interface. This interface only exists on Tier-0 gateway. This interface was referred to as Uplink interface in previous releases. This interface type will also be used to extend a VRF (Virtual Routing and Forwarding) from the physical networking fabric into the NSX domain.
+-   **Router Link Interface/Linked Port:** Interface connecting Tier-0 and Tier-1 gateways. Each Tier-0-to-Tier-1 peer connection is provided a /31 subnet within the 100.64.0.0/16 reserved address space (RFC6598). This link is created automatically when the Tier-0 and Tier-1 gateways are connected. This subnet can be changed when the Tier-0 gateway is being created. It is not possible to change it afterward. 
+-   **Service Interface:**  Interface connecting VLAN segments to provide connectivity to VLAN backed physical or virtual workloads. Service interface can also be connected to overlay/VLAN segments for standalone load balancer use cases explained in load balancer Chapter 6. Service Interface supports static and dynamic routing starting with NSX-T 3.0. It is supported on both Tier-0 and Tier-1 gateways configured in Active/Standby high-availability configuration mode explained in section 4.6.2. Note that a Tier-0 or Tier-1 gateway must have an SR component to realize service interfaces. This interface was referred to as centralized service interface in previous releases.
+-   **Loopback Interface:** Tier-0 gateway supports the loopback interfaces. A Loopback interface is a virtual interface, and it can be redistributed into a routing protocol.
+
+
+### 4.2.2 Route Types on Tier-0 and Tier-1 Gateways
+
+There is no dynamic routing between Tier-0 and Tier-1 gateways. The NSX-T platform takes care of the auto-plumbing between Tier-0 and Tier-1 gateways. The following list details route types on Tier-0 and Tier-1 gateways.
+
+
+-   **Tier-0 Gateway**
+
+    -   Connected – Connected routes on Tier-0 include external
+        interface subnets, service interface subnets, loopback and
+        segment subnets connected to Tier-0. In Figure 4‑12, 
+        172.16.20.0/24 (Connected segment), 192.168.20.0/24 (Service
+        Interface) and 192.168.240.0/24 (External interface) are
+        connected routes for the Tier-0 gateway.
+
+    -   Static – User configured static routes on Tier-0.
+
+    -   NAT IP – NAT IP addresses owned by the Tier-0 gateway discovered
+        from NAT rules configured on Tier-0 Gateway.
+
+    -   BGP Routes learned via BGP neighbors.
+
+    -   IPsec Local IP – Local IPsec endpoint IP address for
+        establishing VPN sessions.
+
+    -   DNS Forwarder IP – Listener IP for DNS queries from clients.
+        Also used as the source IP to forward DNS queries to the
+        upstream DNS server.
+
+    -   Inter SR. SRs of a same Tier-0 gateway in the same edge cluster
+        will create an automatic iBGP peering adjacency between them to
+        exchange routing information. This topology is only supported
+        with Active/Active topologies and with NSX-T Federation.
+
+-   **Tier-1 Gateway**
+
+    -   Connected – Connected routes on Tier-1 include segment subnets
+        connected to Tier-1 and service interface subnets configured on
+        Tier-1 gateway. In Figure 4‑12, 172.16.10.0/24 (Connected segment) and 192.168.10.0/24 (Service Interface) are connected routes for Tier-1 gateway.
+
+-   Static– User configured static routes on Tier-1 gateway.
+
+-   NAT IP – NAT IP addresses owned by the Tier-1 gateway discovered
+    from NAT rules configured on the Tier-1 gateway.
+
+-   LB VIP – IP address of load balancing virtual server.
+
+-   LB SNAT – IP address or a range of IP addresses used for Source NAT
+    by load balancer.
+
+-   IPsec Local IP – Local IPsec endpoint IP address for establishing
+    VPN sessions.
+
+-   DNS Forwarder IP – Listener IP for DNS queries from clients. Also
+    used as the source IP to forward DNS queries to the upstream DNS
+    server.
+
+**Route Advertisement on the Tier-1 and Tier-0 Logical Router**
+
+The Tier-0 gateway could use static routing or BGP to connect to the
+physical routers. The Tier-1 gateway cannot connect to physical routers
+directly; it must connect to a Tier-0 gateway to provide N-S
+connectivity to the subnets attached to it. When a Tier-1 gateway is
+connected to a Tier-0 gateway, a default route is automatically created
+on the Tier-1. That default route is pointing to the RouterLink IP
+address that is owned by the Tier-0.
+
+Figure 4‑12 explains the route advertisement on both the Tier-1 and
+Tier-0 gateway.
+
+<p align="center">
+    <img src="images/Figure4-12.png">
+</p>
+<p align="center">
+Figure 4‑12: Routing Advertisement 
+
+“Tier-1 Gateway” advertises connected routes to Tier-0 Gateway. Figure
+4‑12 shows an example of connected routes (172.16.10.0/24 and
+192.168.10.0/24). If there are other route types, like NAT IP etc. as
+discussed in section 4.2.2, a user can advertise those route types as
+well. As soon as “Tier-1 Gateway” is connected to “Tier-0 Gateway”, the
+management plane configures a default route on “Tier-1 Gateway” with
+next hop IP address as RouterLink interface IP of “Tier-0 Gateway” i.e.
+100.64.224.0/31 in the example above.
+
+Tier-0 Gateway sees 172.16.10.0/24 and 192.168.10.1/24 as Tier-1
+Connected routes (t1c) with a next hop of 100.64.224.1/31. Tier-0
+Gateway also has Tier-0 “Connected” routes (172.16.20.0/24) in Figure
+4‑12.
+
+Northbound, “Tier-0 Gateway” redistributes the Tier-0 connected and
+Tier-1 connected routes in BGP and advertises these routes to its BGP
+neighbor, the physical router.
+
+### 4.2.3 Fully Distributed Two Tier Routing
+
+NSX-T provides a fully distributed routing architecture. The motivation
+is to provide routing functionality closest to the source. NSX-T
+leverages the same distributed routing architecture discussed in
+distributed router section and extends that to multiple tiers.
+
+Figure 4‑13 shows both logical and per transport node views of two
+Tier-1 gateways serving two different tenants and a Tier-0 gateway. Per
+transport node view shows that the distributed component (DR) for Tier-0
+and the Tier-1 gateways have been instantiated on two hypervisors.
+
+<p align="center">
+    <img src="images/Figure4-13.png">
+</p>
+<p align="center">
+Figure 4‑12: Logical Routing Instances 
+
+If “VM1” in tenant 1 needs to communicate with “VM3” in tenant 2,
+routing happens locally on hypervisor “HV1”. This eliminates the need to
+route of traffic to a centralized location to route between different
+tenants or environments.
+
+**Multi-Tier Distributed Routing with Workloads on the same Hypervisor**
+
+The following list provides a detailed packet walk between workloads
+residing in different tenants but hosted on the same hypervisor.
+
+1.  “VM1” (172.16.10.11) in tenant 1 sends a packet to “VM3”
+    (172.16.201.11) in tenant 2. The packet is sent to its default
+    gateway interface located on tenant 1, the local Tier-1 DR.
+
+2.  Routing lookup happens on the tenant 1 Tier-1 DR and the packet is
+    routed to the Tier-0 DR following the default route. This default
+    route has the RouterLink interface IP address (100.64.224.0/31) as a
+    next hop.
+
+3.  Routing lookup happens on the Tier-0 DR. It determines that the
+    172.16.201.0/24 subnet is learned from the tenant 2 Tier-1 DR
+    (100.64.224.3/31) and the packet is routed there.
+
+4.  Routing lookup happens on the tenant 2 Tier-1 DR. This determines
+    that the 172.16.201.0/24 subnet is directly connected. L2 lookup is
+    performed in the local MAC table to determine how to reach “VM3” and
+    the packet is sent.
+
+The reverse traffic from “VM3” follows the similar process. A packet
+from “VM3” to destination 172.16.10.11 is sent to the tenant-2 Tier-1
+DR, then follows the default route to the Tier-0 DR. The Tier-0 DR
+routes this packet to the tenant 1 Tier-1 DR and the packet is delivered
+to “VM1”. During this process, the packet never left the hypervisor to
+be routed between tenants.
+
+**Multi-Tier Distributed Routing with Workloads on different
+Hypervisors**
+
+Figure 4‑14 shows the packet flow between workloads in different tenants
+which are also located on different hypervisors.
+
+<p align="center">
+    <img src="images/Figure4-14.png">
+</p>
+<p align="center">
+Figure 4‑14: Logical routing end-to-end packet Flow between hypervisor
+
+The following list provides a detailed packet walk between workloads residing in different tenants and hosted on the different hypervisors.
+1.	“VM1” (172.16.10.11) in tenant 1 sends a packet to “VM2” (172.16.200.11) in tenant 2. VM1 sends the packet to its default gateway interface located on the local Tier-1 DR in HV1. 
+2.	Routing lookup happens on the tenant 1 Tier-1 DR and the packet follows the default route to the Tier-0 DR with a next hop IP of 100.64.224.0/31.
+3.	Routing lookup happens on the Tier-0 DR which determines that the 172.16.200.0/24 subnet is learned via the tenant 2 Tier-1 DR (100.64.224.3/31) and the packet is routed accordingly.
+4.	Routing lookup happens on the tenant 2 Tier-1 DR which determines that the 172.16.200.0/24 subnet is a directly connected subnet. A lookup is performed in ARP table to determine the MAC address associated with the “VM2” IP address. This destination MAC is learned via the remote TEP on hypervisor “HV2”.
+5.	The “HV1” TEP encapsulates the packet and sends it to the “HV2” TEP, finally leaving the host.
+6.	The “HV2” TEP decapsulates the packet and recognize the VNI in the Geneve header. A L2 lookup is performed in the local MAC table associated to the LIF where “VM2” is connected.
+7.	The packet is delivered to “VM2”.
+
+The return packet follows the same process. A packet from “VM2” gets routed to the local hypervisor Tier-1 DR and is sent to the Tier-0 DR. The Tier-0 DR routes this packet to tenant 1 Tier-1 DR which performs the L2 lookup to find out that the MAC associated with “VM1” is on remote hypervisor “HV1”. The packet is encapsulated by “HV2” and sent to “HV1”, where this packet is decapsulated and delivered to “VM1". It is important to notice that in this use case, routing is performed locally on the hypervisor hosting the VM sourcing the traffic.
+
+## 4.3 Routing Capabilities
+
+NSX-T supports static routing and the dynamic routing protocol BGP on Tier-0 Gateways for IPv4 and IPv6 workloads. In addition to static routing and BGP, Tier-0 gateway also supports a dynamically created iBGP session between its Services router component. This feature is referred as Inter-SR routing and is available for active-active Tier-0 topologies only.
+
+ Tier-1 Gateways support static routes but do not support any dynamic routing protocols.
+
+
+### 4.3.1 Static Routing
+
+Northbound, static routes can be configured on Tier-1 gateways with the next hop IP as the Routerlink IP of the Tier-0 gateway (100.64.0.0/16 range or a range defined by user for Routerlink interface). Southbound, static routes can also be configured on Tier-1 gateway with a next hop as a layer 3 device reachable via Service interface.
+
+Tier-0 gateways can be configured with a static route toward external subnets with a next hop IP of the physical router. Southbound, static routes can be configured on Tier-0 gateways with a next hop of a layer 3 device reachable via Service interface.
+
+ECMP is supported with static routes to provide load balancing, increased bandwidth, and fault tolerance for failed paths or Edge nodes. Figure 4 15 shows a Tier-0 gateway with two external interfaces leveraging Edge node, EN1 and EN2 connected to two physical routers. Two equal cost static default routes configured for ECMP on Tier-0 Gateway. Up to eight paths are supported in ECMP. The current hash algorithm for ECMP is two-tuple, based on source and destination IP of the traffic.
+
+<p align="center">
+    <img src="images/Figure4-15.png">
+</p>
+<p align="center">
+Figure 4‑15: Static Routing Configuration
+
+BFD can also be enabled for faster failure detection of next hop and is configured in the static route. In NSX-T 3.0, BFD keep alive TX/RX timer can range from a minimum of 50ms (for Bare Metal Edge Node) to maximum of 10,000ms. Default BFD keep alive TX/RX timers are set to 500ms with three retries.
+
+### 4.3.2 Dynamic Routing
+
+BGP is the de facto protocol on the WAN and in most modern data centers. A typical leaf-spine topology has eBGP running between leaf switches and spine switches. 
+
+Tier-0 gateways support eBGP and iBGP on the external interfaces with physical routers. BFD can also be enabled per BGP neighbor for faster failover. BFD timers depend on the Edge node type. Bare metal Edge supports a minimum of 50ms TX/RX BFD keep alive timer while the VM form factor Edge supports a minimum of 500ms TX/RX BFD keep alive timer.
+
+With NSX-T 3.0 release, the following BGP features are supported:
+
+BGP is the de facto protocol on the WAN and in most modern data centers.
+A typical leaf-spine topology has eBGP running between leaf switches and
+spine switches.
+
+Tier-0 gateways support eBGP and iBGP on the external interfaces with
+physical routers. BFD can also be enabled per BGP neighbor for faster
+failover. BFD timers depend on the Edge node type. Bare metal Edge
+supports a minimum of 50ms TX/RX BFD keep alive timer while the VM form
+factor Edge supports a minimum of 500ms TX/RX BFD keep alive timer.
+
+With NSX-T 3.0 release, the following BGP features are supported:
+
+-   Two and four bytes AS numbers in *asplain, asdot* and *asdot+*
+    format.
+
+-   eBGP multi-hop support, allowing eBGP peering to be established on
+    loopback interfaces.
+
+-   iBGP
+
+-   eBGP multi-hop BFD
+
+-   ECMP support with BGP neighbors in same or different AS numbers.
+    (Multi-path relax)
+
+-   BGP Allow AS in
+
+-   BGP route aggregation support with the flexibility of advertising a
+    summary route only to the BGP peer or advertise the summary route
+    along with specific routes. A more specific route must be present in
+    the routing table to advertise a summary route.
+
+-   Route redistribution in BGP to advertise Tier-0 and Tier-1 Gateway
+    internal routes as mentioned in section 4.2.2.
+
+-   Inbound/outbound route filtering with BGP peer using prefix-lists or
+    route-maps.
+
+-   Influencing BGP path selection by setting Weight, Local preference,
+    AS Path Prepend, or MED.
+
+-   Standard, Extended and Large BGP community support.
+
+-   BGP well-known community names (e.g., no-advertise, no-export,
+    no-export-subconfed) can also be included in the BGP route updates
+    to the BGP peer.
+
+-   BGP communities can be set in a route-map to facilitate matching of
+    communities at the upstream router.
+
+-   Graceful restart (Full and Helper mode) in BGP.
+
+-   BGP peering authentication using plaintext or MD5.
+
+-   MP-BGP as the control plane protocol for VXLAN overlays or IPv6
+    address families.
+
+Active/active ECMP services supports up to eight paths. The ECMP hash algorithm is 5-tuple northbound of Tier-0 SR.  ECMP hash is based on the source IP address, destination IP address, source port, destination port and IP protocol. The hashing algorithm determines how incoming traffic is forwarded to the next-hop device when there are multiple paths. ECMP hashing algorithm from DR to multiple SRs is 2-tuple and is based on the source IP address and destination IP address.
+
+**Graceful Restart**
+
+Graceful restart in BGP allows a BGP speaker to preserve its forwarding table while the control plane restarts. It is recommended to enable BGP Graceful restart when the BGP peer has multiple supervisors. A BGP control plane restart could happen due to a supervisor switchover in a dual supervisor hardware, planned maintenance, or active routing engine crash. As soon as a GR-enabled router restarts (control plane failure), it preserves its forwarding table , marks the routes as stale, and sets a grace period restart timer for the BGP session to reestablish. If the BGP session reestablishes during this grace period, route revalidation is done, and the forwarding table is updated. If the BGP session does not reestablish within this grace period, the router flushes the stale routes. 
+ 
+The BGP session will not be GR capable if only one of the peers advertises it in the BGP OPEN message; GR needs to be configured on both ends. GR can be enabled/disabled per Tier-0 gateway. The GR restart timer is 180 seconds by default and cannot be change after a BGP peering adjacency is in the established state, otherwise the peering needs to be negotiated again. 
+
+# 4.4 VRF Lite
+
+# 4.4.1 VRF Lite Generalities
+
+Virtual Routing Forwarding (VRF) is a virtualization method that consists of creating multiple logical routing instances within a physical routing appliance. It provides a complete control plane isolation between routing instances. VRF instances are commonly used in enterprise and service providers networks to provide control and data plane isolation, allowing several use cases such as overlapping IP addressing between tenants, isolation of regulated workload, isolation of external and internal workload as well as hardware resources consolidation. Starting with NSX-T 3.0 it is possible to extent the VRF present on the physical network onto the NSX-T domain. Creating a development environment that replicates the production environment is a typical use case for VRF. 
+
+Another representative use case for VRF is when multiple environments needs to be isolated from each other. As stated previously, VRF instances are isolated between each other by default; allowing communications between these environments using the Route Leaking VRF feature is possible. While this feature allows inter-VRF communications, it is important to emphasize that scalability can become an issue if a design permits all VRF to communicate between each other. In this case, VRF might not be the option. VRF should not be replaced in lieu of the DFW construct.
+ 
+
+Figure 4-16 pictures a traditional VRF architecture. Logical (Switch Virtual Interface – Vlan interface) or Physical interface should be dedicated to a single VRF instance. In the following diagram, interface e1/1 and e2/2 belong to VRF-A while interface e1/2 and e2/2 belong to VRF-B. Each VRF will run their own dynamic routing protocol (or use static routes)
+
+<p align="center">
+    <img src="images/Figure4-16.png">
+</p>
+<p align="center">
+Figure 4‑16: Networking VRF Architecture
+
+With NSX-T 2.x, several multi-tenant designs are possible.
+The first option was to deploy a Tier-1 gateway for each tenant while a shared Tier-0 provides connectivity to the physical networking fabric for all tenants. Figure 4-17 diagrams that option.
+
+
+<p align="center">
+    <img src="images/Figure4-17.png">
+</p>
+<p align="center">
+Figure 4‑17: NSX-T 2.x multi-tenant architecture. – Shared Tier-0 Gateway
+
+
+Another supported design is to deploy a separate Tier-0 gateway for each tenant on a dedicated tenant edge node. Figure 4-18 shows a traditional multi-tenant architecture using dedicated Tier-0 per tenant in NSX-T 2.X .
+
+
+<p align="center">
+    <img src="images/Figure4-18.png">
+</p>
+<p align="center">
+Figure 4‑18: NSX-T 2.x multi-tenant architecture. Dedicated Tier0 for each tenant
+
+In traditional networking, VRF instances are hosted on a physical appliance and share the resources with the global routing table. Starting with NSX-T 3.0, Virtual Routing and Forwarding (VRF) instances configured on the physical fabric can be extended to the NSX-T domain. A VRF Tier-0 gateway must be hosted on a traditional Tier-0 gateway identified as the “Parent Tier-0”. Figure 4-19 diagrams an edge node hosting a traditional Tier-0 gateway with two VRF gateways. Control plane is completely isolated between all the Tier-0 gateways instances. 
+
+<p align="center">
+    <img src="images/Figure4-19.png">
+</p>
+<p align="center">
+Figure 4‑19: Tier-0 VRF Gateways hosted on a Parent Tier-0 Gateway 
+
+
+The parent Tier-0 gateway can be considered as the global routing table and must have connectivity to the physical fabric. A unique Tier-0 gateway instance (DR and SR) will be created and dedicated to a VRF. Figure 4-20 shows a detailed representation of the Tier-0 VRF gateway with their respective Service Router and Distributed Router components.
+
+
+<p align="center">
+    <img src="images/Figure4-20.png">
+</p>
+<p align="center">
+Figure 4‑20: Detailed representation of the SR/DR component for Tier-0 VRF hosted on an edge node 
+
+Figure 4-21 shows a typical single tier routing architecture with two Tier-0 VRF gateways connected to their parent Tier-0 gateway. Traditional segments are connected to a Tier-0 VRF gateway.
+
+
+<p align="center">
+    <img src="images/Figure4-21.png">
+</p>
+<p align="center">
+Figure 4‑21: NSX-T 3.0 multi-tenant architecture. Dedicated Tier-0 VRF Instance for each VRF
+
+Since control plane is isolated between Tier-0 VRF instances and the parent Tier-0 gateway, each Tier-0 VRF needs their own routing configuration using either static routes or BGP. It implies that each Tier-0 VRF will have their own dedicated BGP process and needs to have their dedicated BGP peers. From a data plane standpoint, 802.1q VLAN tags are used to differentiate traffic between the VRFs instances as demonstrated in the previous figure.
+
+NSX-T 3.0 supports BGP and static routes for the Tier-0 VRF gateway. It offers the flexibility to use static routes on a particular Tier-0 VRF while another Tier-0 VRF would use BGP. 
+
+Figure 4-22 shows a topology with two Tier-0 VRF instances and their respective BGP peers on the physical networking fabric. It is important to emphasize that the Parent Tier-0 gateway has a BGP peering adjacency with the physical routers using their respective global routing table and BGP process. 
+
+
+<p align="center">
+    <img src="images/Figure4-22.png">
+</p>
+<p align="center">
+Figure 4‑22: BGP peering Tier-0 VRF gateways and VRF on the networking fabric.
+
+When a Tier-0 VRF is attached to parent Tier-0, multiple parameters will
+be inherited by design and cannot be changed:
+
+-   Edge Cluster
+
+-   High Availability mode (Active/Active – Active/Standby)
+
+-   BGP Local AS Number
+
+-   Internal Transit Subnet
+
+-   Tier-0, Tier-1 Transit Subnet.
+
+
+
+All other configuration parameters can be independently managed:
+
+-   External Interface IP addresses   
+
+-   BGP neighbor
+
+-   Prefix list, route-map, Redistribution
+
+-   Firewall rules
+
+-   NAT rules
+
+As mentioned previously, The Tier-0 VRF is hosted on the Parent Tier-0 and will follow the high availability mode and state of its Parent Tier-0.
+Both Active/Active or Active/Standby high availability mode are supported on the Tier-0 VRF gateways. It is not possible to have an Active/Active Tier-0 VRF hosted on an Active/Standby Parent Tier-0.
+
+In a traditional Active/Standby design, a Tier-0 gateway failover can be triggered if all northbound BGP peers are unreachable. Similar to the high availability construct between the Tier-0 VRF and the Parent Tier-0, the BGP peering design must match between the VRF Tier-0 and the Parent Tier-0.
+
+Inter-SR routing is not supported in Active/Active VRF topologies. 
+
+Figure 4-23 represents a BGP instance from both parent Tier-0 and Tier-0 VRF point of view. This topology is supported as each Tier-0 SR (on the parent and on the VRF itself) have a redundant path towards the network infrastructure. Both the Parent Tier-0 gateway and the Tier-0 VRF gateway are peering with the same physical networking device but on a different BGP process. 
+The Parent Tier-0 gateways peer with both top of rack switches on their respective global BGP process while the Tier-0 VRF gateways peer with both top of rack switch on another BGP process dedicated to the VRF. 
+In this particular case the Tier-0 VRF leverages physical redundancy towards the networking fabric if one of its northbound link fails. 
+
+
+<p align="center">
+    <img src="images/Figure4-23.png">
+</p>
+<p align="center">
+Figure 4‑23: Supported BGP peering Design
+
+Figure 4-24 represents an unsupported VRF Active/Active design where different routes are learned from different physical routers. Both the Parent Tier-0 and VRF Tier-0 gateways are learning their default route from a single physical router. The active VRF Tier-0 must specific routes from a single BGP peer. This kind of scenario would be supported for traditional Tier-0 architecture as Inter-SR would provide a redundant path to the networking fabric. This VRF architecture is not supported in NSX-T 3.0.
+
+
+<p align="center">
+    <img src="images/Figure4-24.png">
+</p>
+<p align="center">
+Figure 4‑24: Unsupported Active/Active Topology with VRF 
+
+Figure 4-25 demonstrates the traffic being as one internet router fails and Tier-0 VRF gateways can’t leverage another redundant path to reach the destination. Since the Parent Tier-0 gateway has an established BGP peering adjacency, failover will not be triggered, and traffic will be blackholed on the Tier-0 VRF.
+
+
+<p align="center">
+    <img src="images/Figure4-25.png">
+</p>
+<p align="center">
+Figure 4‑25: Unsupported Active-Active Topology with VRF – Failure
+
+On the Parent Tier-0:
+
+1.  VM “172.16.10.0” sends its IP traffic towards the internet through
+    the Tier-0 DR.
+
+2.  Since the Tier-0 topology is Active/Active, the Tier-0 DR sends the
+    traffic to both Tier-0 SR1 and Tier-0 SR2 using a 2 tuple.
+
+3.  From a Tier-0 SR1 point of view, the traffic that needs to be routed
+    towards the internet will be sent towards Tier-0 SR2 as there is an
+    inter-SR BGP adjacency and that Tier-0 SR2 learns the route from
+    another internet switch.
+
+4.  Traffic is received by the Tier-0 SR2 and routed towards the
+    physical fabric.
+
+On the Tier-0 VRF:
+
+1.  VM “172.16.10.0” sends its IP traffic towards the internet through
+    the Tier-0 DR.
+
+2.  Since the Tier-0 topology is Active/Active, the Tier-0 DR sends the
+    traffic to both Tier-0 SR1 and Tier-0 SR2 using a 2 tuple.
+
+3.  From a Tier-0 SR1 point of view, the traffic is blackholed as there
+    is no inter-SR BGP adjacency between the Tier-0 SRs VRF.
+
+
+Following the same BGP peering design and principle for Active/Standby
+topologies is also mandatory for VRF architectures as the Tier-0 VRF
+will inherit the behavior of the parent Tier-0 gateway.
+
+Figure 4-26 represents another unsupported design with VRF architecture.
+
+
+<p align="center">
+    <img src="images/Figure4-26.png">
+</p>
+<p align="center">
+Figure 4‑26: Unsupported design BGP architecture Different peering with the networking fabric.
+
+
+In this design, traffic will be blackholed on the Tier-0 VRF SR1 as the internet router fails. Since the Tier-0 VRF share its high availability running mode with the Parent Tier-0, it is important to note that the Tier-0 SR1 will not failover to the Tier-0 SR2. The reason behind this behavior is because a failover is triggered only if all northbound BGP sessions change to the “down” state.
+Since Tier-0 SR1 still has an active BGP peering with a northbound router on the physical networking fabric, failover will not occur and traffic will be blackholed on the VRF that have only one BGP peer active.
+
+Traditional Tier-1 gateways can be connected to Tier-0 VRF to provide a multi-tier routing architecture as demonstrated in figure 4-27. 
+
+
+<p align="center">
+    <img src="images/Figure4-27.png">
+</p>
+<p align="center">
+Figure 4‑27: Multi-Tier routing architecture and VRF-lite
+
+Stateful services can either run on a Tier-0 VRF gateway or a Tier-1 gateway except for VPN and Load Balancing as these features are not supported on a Tier-0 VRF. Tier-1 SR in charge of the stateful services for a particular VRF will be hosted on the same edge nodes as the Parent Tier-0 Gateway. Figure 4-28 represents stateful services running on traditional Tier-1 gateways SR. 
+
+
+<p align="center">
+    <img src="images/Figure4-28.png">
+</p>
+<p align="center">
+Figure 4‑28: Stateful Services supported on Tier-1 
+
+By default, data-plane traffic between VRF instances is isolated in
+NSX-T. By configuring VRF Route Leaking, traffic can be exchanged
+between VRF instances .
+
+As a result, static routes must be configured on the Tier-0 VRF
+instances to allow traffic to be exchanged. The next hop for these
+static routes must not be a Tier-0 gateway (VRF or Parent). 
+As a result, multi-tier routing architecture must be implemented to allow traffic to be exchanged between the VRF instances.
+
+Figure 4-29 demonstrates a supported topology for VRF route leaking
+
+Two static routes are necessary:
+
+-   Static Route on Tier-0 VRF A
+    -   Destination Subnet: 172.16.20.0/24
+    -   Next Hop
+        -   IP Address of Tier-1 DR in VRF B (e.g 100.64.80.3)
+        -   Admin Distance: 1
+        -   Scope: VRF-B
+-   Static Route on Tier-0 VRF B
+    -   Destination Subnet: 172.16.10.0/24
+    -   Next Hop
+        -   IP Address of Tier-1 DR in VRF A (e.g 100.64.80.1)
+        -   Admin Distance: 1
+        -   Scope: VRF-A
+
+
+
+<p align="center">
+    <img src="images/Figure4-29.png">
+</p>
+<p align="center">
+Figure 4‑29: VRF Route leaking with static routes
+
+VRF-lite also supports northbound VRF route leaking as traffic can be exchanged between a virtual workload on an VRF overlay segment and a bare metal server hosted in a different VRF on the physical networking fabric.
+NSX-T VRF route leaking requires that the next hop for the static route must not be a Tier-0 gateway. Static routes pointing to the directly connected IP addresses uplink would not be a recommended design as the static route would fail if an outage would occur on that link or neighbor (Multiple static routes would be needed for redundancy). 
+
+A loopback or virtual IP address host route (/32) can be advertised in the network in the destination VRF.  Since the host route is advertised by both top of rack switches, two ECMP routes will be installed in the Tier-0 VRF. 
+Figure 4-30 demonstrates the design and Tier-0 VRF gateways will use all available healthy paths to the networking fabric to reach the server in VRF-B.
+
+
+<p align="center">
+    <img src="images/Figure4-30.png">
+</p>
+<p align="center">
+Figure 4‑30: VRF leaking traffic with northbound destination
+
+
+Two static routes are necessary:
+-   Static Route on Tier-0 VRF A
+    -   Destination Subnet: 10.10.10.0/24
+    -   Next Hop
+        -   192.168.1.1 (Loopback interface)
+        -   Admin Distance: 1
+        -   Scope: VRF-B
+-   Static Route on Tier-0 VRF B
+    -   Destination Subnet: 172.16.10.0/24
+    -   Next Hop
+        -   IP Address of Tier-1 DR in VRF A (e.g 100.64.80.1)
+        -   Admin Distance: 1
+        -   Scope: VRF-A
+
+In case of a physical router outage, the next hop for the static route on the Tier-0 VRF A can still be reached using a different healthy BGP peer advertising that host route.
+
+
+# 4.5 IPv6 Routing Capabilities
+
+NSX-T Data Center also supports dual stack for the interfaces on a Tier-0 or Tier-1 Gateway. Users can leverage distributed services like distributed routing and distributed firewall for East-West traffic in a single tier topology or multi-tiered topology for IPv6 workloads now. Users can also leverage centralized services like Gateway Firewall for North-South traffic.
+
+NSX-T Datacenter supports the following unicast IPv6 addresses:
+•	Global Unicast: Globally unique IPv6 address and internet routable
+•	Link-Local: Link specific IPv6 address and used as next hop for IPv6 routing protocols
+•	Unique local: Site specific unique IPv6 addresses used for inter-site communication but not routable on internet. Based on RFC4193.
+
+The following table shows a summarized view of supported IPv6 unicast and multicast address types on NSX-T Datacenter components.
+
+  |**NSX-T Component**      |    **Unicast Addresses Supported**  |   **Multicast Address Supported**|  
+  | -------------| -------------- | -----------------| 
+  |**Tier-0 or Tier-1 Gateway Distributed Router (DR)**|   Global, Unique Local, Link Local          |  All Node address (FF02::1) <br> All Routers address (FF02:2) <br> Sollicited-node Multicast Address (FF02::1::FF:0/104)   | 
+  |**Tier-0 or Tier-1 Gateway Services Router (SR)**|   Global, Unique Local, Link Local |  All Node address (FF02::1) <br> All Routers address (FF02:2) <br> Sollicited-node Multicast Address (FF02::1::FF:0/104    | 
+  |**Inter-Tier Transit Link (Router link)**|   Global, Unique Local, Link Local |  All Node address (FF02::1) <br> All Routers address (FF02:2)| 
+  |**Inter-Tier Transit Link (SR-DR link)**|  Link Local          |  All Node address (FF02::1) <br> All Routers address (FF02:2)             | 
+<p align="center">
+Table 4‑1: Type of IPv6 addresses supported on Tier-0 and Tier-1 Gateway components
+</p>
+
+Figure 4-31 shows a single tiered routing topology on the left side with a Tier-0 Gateway supporting dual stack on all interfaces and a multi-tiered routing topology on the right side with a Tier-0 Gateway and Tier-1 Gateway supporting dual stack on all interfaces. A user can either assign static IPv6 addresses to the workloads or use a DHCPv6 relay supported on gateway interfaces to get dynamic IPv6 addresses from an external DHCPv6 server.
+
+For a multi-tier IPv6 routing topology, each Tier-0-to-Tier-1 peer connection is provided a /64 unique local IPv6 address from a pool i.e. fc5f:2b61:bd01::/48. A user has the flexibility to change this subnet range and use another subnet if desired. Similar to IPv4, this IPv6 address is auto plumbed by system in background.
+
+
+<p align="center">
+    <img src="images/Figure4-31.png">
+</p>
+<p align="center">
+Figure 4‑31: Single tier and Multi-tier IPv6 routing topology
+
+
+Tier-0 Gateway supports following IPv6 routing features:
+
+-   Static routes with IPv6 Next-hop
+-   MP-eBGP with IPv4 and IPv6 address families
+-   Multi-hop eBGP
+-   IBGP
+-   ECMP support with static routes, EBGP and IBGP
+-   Outbound and Inbound route influencing using Weight, Local Pref, AS
+    Path prepend and MED.
+-   IPv6 Route Redistribution
+-   IPv6 Route Aggregation
+-   IPv6 Prefix List and Route map
+-   IPv6 Loopback Interfaces
+-   
+Tier-1 Gateway supports following IPv6 routing features:
+-   Static routes with IPv6 Next-hop
+
+IPv6 routing between Tier-0 and Tier-1 Gateway is auto plumbed similar to IPv4 routing. As soon as Tier-1 Gateway is connected to Tier-0 Gateway, the management plane configures a default route (::/0) on Tier-1 Gateway with next hop IPv6 address as Router link IP of Tier-0 Gateway (fc05:2b61:bd01:5000::1/64, as shown in figure 4-32). To provide reachability to subnets connected to the Tier-1 Gateway, the Management Plane (MP) configures routes on the Tier-0 Gateway for all the LIFs connected to Tier-1 Gateway with a next hop IPv6 address as Tier-1 Gateway Router link IP (fc05:2b61:bd01:5000::2/64, as shown in figure 4-32). 2001::/64 & 2002:/64 are seen as “Tier-1 Connected” routes on Tier-0.
+
+Northbound, Tier-0 Gateway redistributes the Tier-0 connected and Tier-1 Connected routes in BGP and advertises these to its eBGP neighbor, the physical router.
+
+
+<p align="center">
+    <img src="images/Figure4-32.png">
+</p>
+<p align="center">
+Figure 4‑32: IPv6 Routing in a Multi-tier topology
+
+# 4.6 Services High Availability
+
+NSX Edge nodes run in an Edge cluster, hosting centralized services, and providing connectivity to the physical infrastructure. Since the services are run on the SR component of a Tier-0 or Tier-1 gateway, the following concept is relevant to SR. This SR service runs on an Edge node and has two modes of operation – active/active or active/standby. When a Tier-1 gateway is configured to be hosted on an Edge cluster, an SR is automatically instantiated even if no services are configured or running on the Tier-1. When a Tier-1 SR is instantiated, the Tier-0 DR is removed from the hypervisors and located on the edge nodes only.
+
+## 4.6.1 Active/Active
+
+**Active/Active** - This is a high availability mode where SRs hosted on Edge nodes act as active forwarders. Stateless services such as layer 3 forwarding are IP based, so it does not matter which Edge node receives and forwards the traffic. All the SRs configured in active/active configuration mode are active forwarders. This high availability mode is only available on Tier-0 gateway.
+
+Stateful services typically require tracking of connection state (e.g., sequence number check, connection state), thus traffic for a given session needs to go through the same Edge node. As of NSX-T 3.0, active/active HA mode does not support stateful services such as Gateway Firewall or stateful NAT. Stateless services, including reflexive NAT and stateless firewall, can leverage the active/active HA model. 
+
+Left side of Figure 4-33 shows a Tier-0 gateway (configured in active/active high availability mode) with two external interfaces leveraging two different Edge nodes, EN1 and EN2. Right side of the diagram shows that the services router component (SR) of this Tier-0 gateway instantiated on both Edge nodes, EN1 and EN2. A Compute host, ESXi is also shown in the diagram that only has distributed component (DR) of Tier-0 gateway. 
+
+
+<p align="center">
+    <img src="images/Figure4-33.png">
+</p>
+<p align="center">
+Figure 4‑33: Tier-0 gateway configured in Active/Active HA mode
+
+
+Note that Tier-0 SR on Edge nodes, EN1 and EN2 have different IP addresses northbound toward physical routers and different IP addresses southbound towards Tier-0 DR. Management plane configures two default routes on Tier-0 DR with next hop as SR on EN1 (169.254.0.2) and SR on EN2 (169.254.0.3) to provide ECMP for overlay traffic coming from compute hosts.
+North-South traffic from overlay workloads hosted on Compute hosts will be load balanced and sent to SR on EN1 or EN2, which will further do a routing lookup to send traffic out to the physical infrastructure.
+A user does not have to configure these static default routes on Tier-0 DR. Automatic plumbing of default route happens in background depending upon the HA mode configuration. 
+
+**Inter-SR Routing**
+
+To provide redundancy for physical router failure, Tier-0 SRs on both Edge nodes must establish routing adjacency or exchange routing information with different physical router or TOR. These physical routers may or may not have the same routing information. For instance, a route 192.168.100.0/24 may only be available on physical router 1 and not on physical router 2.
+
+For such asymmetric topologies, users can enable Inter-SR routing. This feature is only available on Tier-0 gateway configured in active/active high availability mode. Figure 4-34 shows an asymmetric routing topology with Tier-0 gateway on Edge node, EN1 and EN2 peering with physical router 1 and physical router 2, both advertising different routes. 
+
+When Inter-SR routing is enabled by the user, an overlay segment is auto plumbed between SRs (similar to the transit segment auto plumbed between DR and SR) and each end gets an IP address assigned in 169.254.0.128/25 subnet by default.  An IBGP session is automatically created between Tier-0 SRs and northbound routes (EBGP and static routes) are exchanged on this IBGP session.
+
+
+<p align="center">
+    <img src="images/Figure4-34.png">
+</p>
+<p align="center">
+Figure 4‑34: Inter-SR Routing
+
+As explained in previous figure, Tier-0 DR has auto plumbed default routes with next hops as Tier-0 SRs and North-South traffic can go to either SR on EN1 or EN2. In case of asymmetric routing topologies, a particular Tier-0 SR may or may not have the route to a destination. In that case, traffic can follow the IBGP route to another SR that has the route to destination. 
+
+Figure 4-34 shows a topology where Tier-0 SR on EN1 is learning a default WAN route 0.0.0.0/0 and a corporate prefix 192.168.100.0/24 from physical router 1 and physical router 2 respectively. If “External 1” interface on Tier-0 fails and the traffic from compute workloads destined to WAN lands on Tier-0 SR on EN1, this traffic can follow the default route (0.0.0.0/0) learned via IBGP from Tier-0 SR on EN2.Traffic is being sent to EN2 through the Geneve overlay. After a route lookup on Tier-0 SR on EN2, this N-S traffic can be sent to physical router 1 using “External interface 3”.
+
+**Graceful Restart and BFD Interaction with Active/Active**
+
+If an Edge node is connected to a TOR switch that does not have the dual supervisor or the ability to retain forwarding traffic when the control plane is restarting, enabling GR in eBGP TOR does not make sense. There is no value in preserving the forwarding table on either end or sending traffic to the failed or restarting device. In case of an active SR failure (i.e., the Edge node goes down), physical router failure, or path failure, forwarding will continue using another active SR or another TOR. BFD should be enabled with the physical routers for faster failure detection.
+
+It is recommended to enable GR If the Edge node is connected to a dual supervisor system that supports forwarding traffic when the control plane is restarting. This will ensure that forwarding table data is preserved and forwarding will continue through the restarting supervisor or control plane. Enabling BFD with such a system would depend on the device-specific BFD implementation. If the BFD session goes down during supervisor failover, then BFD should not be enabled with this system. If the BFD implementation is distributed such that the BFD session would not go down in case of supervisor or control plane failure, then enable BFD as well as GR. 
+
+
+## 4.6.2 Active/Standby
+
+**Active/Standby** - This is a high availability mode where only one SR act as an active forwarder. This mode is required when stateful services are enabled. Services like NAT are in constant state of sync between active and standby SRs on the Edge nodes. This mode is supported on both Tier-1 and Tier-0 SRs. Preemptive and Non-Preemptive modes are available for both Tier-0 and Tier-1 SRs. Default mode for gateways configured in active/standby high availability configuration is non-preemptive. 
+
+A user can select the preferred member (Edge node) when a gateway is configured in active/standby preemptive mode. When enabled, preemptive behavior allows a SR to resume active role on preferred edge node as soon as it recovers from a failure.
+
+For Tier-1 Gateway, active/standby SRs have the same IP addresses northbound. Only the active SR will reply to ARP requests, while the standby SR interfaces operational state is set as down so that they will automatically drop packets.
+
+For Tier-0 Gateway, active/standby SRs have different IP addresses northbound and both have eBGP sessions established on their uplinks. Both Tier-0 SRs (active and standby) receive routing updates from physical routers and advertise routes to the physical routers; however, the standby Tier-0 SR prepends its local AS three times in the BGP updates so that traffic from the physical routers prefer the active Tier-0 SR. 
+
+Southbound IP addresses on active and standby Tier-0 SRs are the same and the operational state of standby SR southbound interface is down. Since the operational state of southbound Tier-0 SR interface is down, the Tier-0 DR does not send any traffic to the standby SR. Figure 4-35 shows active and standby Tier-0 SRs on Edge nodes “EN1” and “EN2”. 
+
+
+<p align="center">
+    <img src="images/Figure4-35.png">
+</p>
+<p align="center">
+Figure 4‑35: Active and Standby Routing Control with eBGP
+
+The placement of active and standby SR in terms of connectivity to TOR or northbound infrastructure becomes an important design choice, such that any component failure should not result in a failure of both active and standby service. Diversity of connectivity to TOR for bare metal edge nodes and host-specific availability consideration for hosts where Edge node VMs are hosted, becomes an important design choice. These choices are described in the design chapter.
+
+
+### 4.6.2.1	Graceful Restart and BFD Interaction with Active
+
+Active/standby services have an active/active control plane with active/standby data forwarding. In this redundancy model, eBGP is established on active and standby Tier-0s SR with their respective TORs. If the Edge node is connected to a system that does not have the dual supervisor or the ability to keep forwarding traffic when the control plane is restarting, enabling GR in eBGP does not make sense. There is no value in preserving the forwarding table on either end as well as no point sending traffic to the failed or restarting device. When the active Tier-0 SR goes down, the route advertised from standby Tier-0 becomes the best route and forwarding continues using the newly active SR. If the TOR switch supports BFD, it is recommended to run BFD on the both eBGP neighbors for faster failure detection.
+
+It is recommended to enable GR If the Edge node is connected to a dual supervisor system that supports forwarding traffic when the control plane is restarting.  This will ensure that the forwarding table is table is preserved and forwarding will continue through the restarting supervisor or control plane. Enabling BFD with such system depends on BFD implementation of hardware vendor. If the BFD session goes down during supervisor failover, then BFD should not be enabled with this system; however, if the BFD implementation is distributed such that that the BFD session would not go down in case of supervisor or control plane failure, then enable BFD as well as GR. 
+
+
+## 4.6.3 High Availbility Failover triggers
+
+An active SR on an Edge node is declared down when one of the following
+conditions is met:
+
+-   Edge nodes in an Edge cluster exchange BFD keep lives on two
+    interfaces of the Edge node, management and overlay tunnel
+    interfaces. Failover will be triggered when a SR fails to receive
+    keep lives on both interfaces.
+
+-   All BGP sessions or northbound routing on the SR is down. This is
+    only applicable on Tier-0 SR. When static routes are used on a Bare
+    Metal Edge node with NSX-T 3.0, the failover will be triggered when
+    the status of all PNIC carrying the uplinks is down.
+
+-   Edge nodes also run BFD with compute hosts. When all the overlay
+    tunnels are down to remote Edges and compute hypervisors, an SR
+    would be declared down.
+
+## 4.7 Edge Node 
+
+Edge nodes are service appliances with pools of capacity, dedicated to running network and security services that cannot be distributed to the hypervisors. Edge node also provides connectivity to the physical infrastructure. Previous sections mentioned that centralized services will run on the SR component of Tier-0 or Tier-1 gateways. These features include:
+
+-   Connectivity to physical infrastructure (static routing / BGP /
+    MP-BGP)
+-   VRF-lite
+-   NAT
+-   DHCP server
+-   Metadata proxy
+-   Gateway Firewall
+-   Load Balancer
+-   L2 Bridging
+-   Service Interface
+-   VPN
+
+As soon as one of these services is configured or an external interface is defined on the Tier-0 gateway, a SR is instantiated on the Edge node. The Edge node is also a transport node just like compute nodes in NSX-T, and like a compute node it can connect to more than one transport zones. A specific Edge node can be connected to only one overlay transport zone and depending upon the topology, is connected to one or more VLAN transport zones for N-S connectivity. 
+
+There are two transport zones on the Edge:
+
+-   **Overlay Transport Zone**: Any traffic that originates from a VM
+    participating in NSX-T domain may require reachability to external
+    devices or networks. This is typically described as external
+    North-South traffic. Traffic from VMs may also require some
+    centralized service like NAT, load balancer etc. To provide
+    reachability for N-S traffic and to consume centralized services,
+    overlay traffic is sent from compute transport nodes to Edge nodes.
+    Edge node needs to be configured with a single overlay transport
+    zone so that it can decapsulate the overlay traffic received from
+    compute nodes as well as encapsulate the traffic sent to compute
+    nodes.
+
+-   **VLAN Transport Zone**: Edge nodes connect to physical
+    infrastructure using VLANs. Edge node needs to be configured for
+    VLAN transport zone to provide external or N-S connectivity to the
+    physical infrastructure. Depending upon the N-S topology, an edge
+    node can be configured with one or more VLAN transport zones.
+
+Edge node can have one or more N-VDS to provide desired connectivity.
+Each N-VDS on the Edge node uses an uplink profile which can be same or
+unique per N-VDS. Teaming policy defined in this uplink profile defines
+how the N-VDS balances traffic across its uplinks. The uplinks can in
+turn be individual pNICs or LAGs.
+
+**Types of Edge Nodes**
+
+Edge nodes are available in two form factors – VM and bare metal. Both
+leverage the data plane development kit (DPDK) for faster packet
+processing and high performance. There are different VM form factors
+available. Each of them has a different resource footprint and can be
+used to achieve different guidelines.
+
+These are detailed in below table.
+
+| **Size**            | **Memory** | **vCPU** | **Disk** | **Specific Usage Guidelines**                                                                                                                                                                               |
+|---------------------|------------|----------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Small**           | 4GB        | 2        | 200 GB   | PoC only, LB functionality is not available.                                                                                                                                                                |
+| **Medium**          | 8GB        | 4        | 200 GB   | Suitable for production with centralized services like NAT, Gateway Firewall. Load balancer functionality can be leveraged for POC.                                                                         |
+| **Large**           | 32GB       | 8        | 200 GB   | Suitable for production with centralized services like NAT, Gateway Firewall, load balancer etc.                                                                                                            |
+| **Extra Large**     | 64GB       | 16       | 200GB    | Suitable for production with centralized services like NAT, Gateway Firewall, load balancer etc. Typically deployed, where higher performance is desired for services like Layer 7 Load balancer and VPN.   |
+| **Bare metal Edge** | 32GB       | 8        | 200 GB   | Suitable for production with centralized services like NAT, Gateway Firewall, load balancer etc. Typically deployed, where higher performance at low packet size and sub-second N-S convergence is desired. |
+
+The Bare Metal Edge resources specified above specify the minimum
+resources needed. It is recommended to deploy an edge node on a bare
+metal server with the following specifications for maximum performance:
+
+-   Memory: 256GB
+
+-   CPU Cores: 24
+
+-   Disk Space: 200GB
+
+When NSX-T Edge is installed as a VM, vCPUs are allocated to the Linux IP stack and DPDK. The number of vCPU assigned to a Linux IP stack or DPDK depends on the size of the Edge VM. A medium Edge VM has two vCPUs for Linux IP stack and two vCPUs dedicated for DPDK. This changes to four vCPUs for Linux IP stack and four vCPUs for DPDK in a large size Edge VM. Starting with NSX-T 3.0, several AMD CPUs are supported both for the virtualized and Bare Metal Edge node form factor. Specifications can be found here.
+
+## 4.8 Multi-TEP support on Edge node
+
+Staring with NSX-T 2.4 release, Edge nodes support multiple overlay tunnels (multi-TEP) configuration to load balance overlay traffic for overlay segments/logical switches. Multi-TEP is supported in both Edge VM and bare metal.  Figure 4-36 shows two TEPs configured on the bare metal Edge. Each overlay segment/logical switch is pinned to a specific tunnel end point IP, TEP IP1 or TEP IP2. Each TEP uses a different uplink, for instance, TEP IP1 uses Uplink1 that’s mapped to pNIC P1 and TEP IP2 uses Uplink2 that’s mapped to pNIC P2. This feature offers a better design choice by load balancing overlay traffic across both physical pNICs and also simplifies N-VDS design on the Edge.
+
+Notice that a single N-VDS is used in this topology that carries both overlay and external traffic.
+In-band management feature is leveraged for management traffic. Overlay traffic gets load balanced by using multi-TEP feature on Edge and external traffic gets load balanced using "Named Teaming policy" as described in section 3.1.3.1. 
+
+
+<p align="center">
+    <img src="images/Figure4-36.png">
+</p>
+<p align="center">
+Figure 4‑36: Bare metal Edge -Same N-VDS for overlay and external traffic with Multi-TEP
+
+-   TEP configuration must be done on one N-VDS only.
+-   All TEPs must use same transport VLAN for overlay traffic.
+-   All TEP IPs must be in same subnet and use same default gateway.
+
+During a pNIC failure, Edge performs a TEP failover by migrating TEP IP and its MAC address to another uplink. For instance, if pNIC P1 fails, TEP IP1 along with its MAC address will be migrated to use Uplink2 that’s mapped to pNIC P2. In case of pNIC P1 failure, pNIC P2 will carry the traffic for both TEP IP1 and TEP IP2.
+
+**A Case for a Better Design:** 
+
+This version of the design guide introduced a simpler way to configure Edge connectivity, referred as “Single N-VDS Design”. The key reasons for adopting “Single N-VDS Design”:
+
+This version of the design guide introduced a simpler way to configure
+Edge connectivity, referred as “Single N-VDS Design”. The key reasons
+for adopting “Single N-VDS Design”:
+
+-   **Multi-TEP support for Edge** – Details of multi-TEP is described
+    as above. Just like an ESXi transport node supporting multiple TEP,
+    Edge node has a capability to support multiple TEP per uplink with
+    following advantages:
+
+    -   Removes critical topology restriction with bare metal – straight
+        through LAG
+
+    -   Allowing the use of multiple pNICs for the overlay traffic in
+        both bare metal and VM form factor.
+
+    -   An Edge VM supporting multiple TEP can have two uplinks from the
+        same N-VDS, allowing utilization of both pNICs
+
+-   **Multiple teaming policy per N-VDS** – [Default and Named Teaming
+    Policy](#_Teaming_Policy)
+
+    -   Allows specific uplink to be designated or pinned for a given
+        VLAN
+
+    -   Allowing uplinks to be active/standby or active-only to drive
+        specific behavior of a given traffic types while co-existing
+        other traffic type following entirely different paths
+
+-   **Normalization of N-VDS configuration** – All form factors or Edge
+    and deployments uses single N-VDS along with host. Single teaming
+    policy for overlay – Load Balanced Source. Single policy for N-S
+    peering – Named teaming Policy
+
+### 4.8.1 Bare Metal Edge Node
+
+NSX-T bare metal Edge runs on a physical server and is installed using an ISO file or PXE boot. 
+Legacy BIOS mode is the only supported booting mode on NSXT-T 3.0. A bare metal Edge differs from the VM form factor Edge in terms of performance. It provides sub-second convergence, faster failover, and higher throughput at low packet size (discussed in performance Chapter 8). There are certain hardware requirements including CPU specifics and supported NICs can be found in the NSX Edge Bare Metal Requirements section of the NSX-T installation guide.
+
+When a bare metal Edge node is installed, a dedicated interface is retained for management. If redundancy is desired, two NICs can be used for management plane high availability. These management interfaces can also be 1G. Bare metal Edge also supports in-band management where management traffic can leverage an interface being used for overlay or external (N-S) traffic.
+
+Bare metal Edge node supports a maximum of 16 physical NICs for overlay traffic and external traffic to top of rack (TOR) switches. For each of these 16 physical NICs on the server, an internal interface is created following the naming scheme “fp-ethX”. These internal interfaces are assigned to the DPDK Fast Path. There is a flexibility in assigning these Fast Path interfaces (fp-eth) for overlay or external connectivity.
+
+#### 4.8.1.1 Management Plane Configuration Choices with Bare Metal Node
+
+This section covers all the available options in managing the bare metal node. There are four options as describe in below diagram:
+
+**Out of Band Management with Single pNIC**
+Left side of Figure 4-37 shows a bare metal edge node with 3 physical NICs. The dedicated pNIC for management and is used to send/receive management traffic. The management pNIC can be 1Gbps. There is not redundancy for management traffic in this topology. If P1 goes down, the management traffic will fail. However, Edge node will continue to function as this doesn’t affect data plane traffic.
+
+**In Band Management – Data Plane (fast-path) NIC carrying Management Traffic**
+This capability was added in NSX-T 2.4 release. It is not mandatory to have a dedicated physical interface to carry management traffic. This traffic can leverage one of the DPDK fast-path interfaces. On the right side of the Figure 4-37, P2 is selected to send management traffic. In-band management configuration is available via CLI on the Edge node. A user needs to provide following two parameters to configure in-band management.
+
+-   VLAN for management traffic
+-   MAC address of the DPDK Fast Path interface chosen for this
+    management traffic.
+
+
+<p align="center">
+    <img src="images/Figure4-37.png">
+</p>
+<p align="center">
+Figure 4‑37: Bare metal Edge Management Configuration Choices
+
+Additionally, one can configure the management redundancy via LAG, however only one of the LAG members can be active at a time.
+
+#### 4.8.1.2 Single N-VDS Bare Metal Configuration with 2 pNICs
+
+Figure 4-38 shows 2 pNIC bare metal Edge using a single N-VDS design for data plane.
+The left side of the diagram shows the bare metal Edge with four physical NICs where management traffic has dedicated two physical NICs (P1 & P2) configured in active/standby mode. 
+
+A single N-VDS “Overlay and External N-VDS" is used in this topology that carries both overlay and External traffic. Overlay traffic from different overlay segments/logical switches gets pinned to TEP IP1 or TEP IP2 and gets load balanced across both uplinks, Uplink1 and Uplink2. Notice that, both TEP IPs use same transport VLAN i.e. VLAN 200 which is configured on both top of rack switches. 
+
+Two VLANs segments, i.e. "External VLAN Segment 300" and "External VLAN Segment 400" are used to provide northbound connectivity to Tier-0 gateway. Same VLAN segment can also be used to connect Tier-0 Gateway to TOR-Left and TOR-Right, however it is not recommended because of inter-rack VLAN dependencies leading to spanning tree related convergence. External traffic from these VLAN segments is load balanced across uplinks using named teaming policy which pins a VLAN segment to a specific uplink. 
+
+This topology provides redundancy for management, overlay and external traffic, in event of a pNIC failure on Edge node/TOR and TOR Failure.
+ 
+The right side of the diagram shows two pNICs bare metal edge configured with the same N-VDS “Overlay and External N-VDS" for carrying overlay and external traffic as above that is also leveraging in-band management. 
+4
+
+<p align="center">
+    <img src="images/Figure4-38.png">
+</p>
+<p align="center">
+Figure 4‑38: Bare metal Edge configured for Multi-TEP - Single N-VDS for overlay and external traffic 
+(With dedicated pNICs for Management and In-Band Management)
+
+Both above topologies use the same transport node profile as shown in Figure 4-39.
+This configuration shows a default teaming policy that uses both Uplink1 and Uplink2. This default policy is used for all the segments/logical switches created on this N-VDS.
+Two additional teaming policies, “Vlan300-Policy” and “Vlan400-Policy” have been defined to override the default teaming policy and send traffic to “Uplink1” and “Uplink2” respectively. 
+
+"External VLAN segment 300" is configured to use the named teaming policy “Vlan300-Policy” that sends traffic from this VLAN only on “Uplink1”. "External VLAN segment 400" is configured to use a named teaming policy “Vlan400-Policy” that sends traffic from this VLAN only on “Uplink2”. 
+
+Based on these teaming policies, TOR-Left will receive traffic for VLAN 100 (Mgmt.), VLAN 200 (overlay) and VLAN 300 (Traffic from VLAN segment 300) and hence, should be configured for these VLANs. Similarly, TOR-Right will receive traffic for VLAN 100 (Mgmt.), VLAN 200 (overlay) and VLAN 400 (Traffic from VLAN segment 400). A sample configuration screenshot is shown below.
+
+
+<p align="center">
+    <img src="images/Figure4-39.png">
+</p>
+<p align="center">
+Figure 4‑39: Bare metal Edge Transport Node Profile
+
+Figure 4-40 shows a logical and physical topology where a Tier-0 gateway has four external interfaces. External interfaces 1 and 2 are provided by bare metal Edge node “EN1”, whereas External interfaces 3 and 4 are provided by bare metal Edge node “EN2”. Both the Edge nodes are in the same rack and connect to TOR switches in that rack. Both the Edge nodes are configured for Multi-TEP and use named teaming policy to send traffic from VLAN 300 to TOR-Left and traffic from VLAN 400 to TOR-Right. Tier-0 Gateway establishes BGP peering on all four external interfaces and provides 4-way ECMP.
+
+
+<p align="center">
+    <img src="images/Figure4-40.png">
+</p>
+<p align="center">
+Figure 4‑40: 4-way ECMP using bare metal edges 
+
+#### 4.8.1.3 Single N-VDS Bare Metal Configuration with Six pNICs
+
+Figure 4-41 shows NSX-T bare metal Edge with six physical NICs. Management traffic has two dedicated pNICs configured in Active/Standby.  Two pNICs, P3 and P4 are dedicated for overlay traffic and two pNICs (P5 and P6) are dedicated for external traffic. 
+
+A single N-VDS “Overlay and External N-VDS" is used in this topology that carries both overlay and External traffic. However, different uplinks are used to carry overlay and external traffic. Multi-TEP is configured to provide load balancing for the overlay traffic on Uplink1 (mapped to pNIC P3) and Uplink2 (mapped to pNIC P4). Notice that, both TEP IPs use same transport VLAN i.e. VLAN 200 which is configured on both top of rack switches.
+ 
+Figure 4-41 also shows a configuration screenshot of named teaming policy defining two additional teaming policies, “Vlan300-Policy” and “Vlan400-Policy”. 
+"External VLAN segment 300" is configured to use a named teaming policy “Vlan300-Policy” that sends traffic from this VLAN only on Uplink3 (mapped to pNIC P5). "External VLAN segment 400" is configured to use a named teaming policy “Vlan400-Policy” that sends traffic from this VLAN only on Uplink4 (mapped to pNIC P6). Hence, BGP traffic from Tier-0 on VLAN 300 always goes to TOR-Left and BGP traffic from Tier-0 on VLAN 400 always goes to TOR-Right.
+ 
+This topology provides redundancy for management, overlay and external traffic. This topology also provides a simple, high bandwidth and deterministic design as there are dedicated physical NICs for different traffic types (overlay and External traffic).
+
+
+<p align="center">
+    <img src="images/Figure4-41.png">
+</p>
+<p align="center">
+Figure 4‑41: Bare metal Edge with six pNICs - Same N-VDS for Overlay and External traffic
+
+
+### 4.8.2 VM Edge Node
