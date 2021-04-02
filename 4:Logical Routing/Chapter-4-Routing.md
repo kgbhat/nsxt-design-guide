@@ -906,7 +906,7 @@ Southbound IP addresses on active and standby Tier-0 SRs are the same and the op
 
 
 <p align="center">
-    <img src="images/Figure4-35.png">
+    <img src="images/Figure4-35.png" width="75%" height="75%">
 </p>
 <p align="center">
 Figure 4‑35: Active and Standby Routing Control with eBGP
