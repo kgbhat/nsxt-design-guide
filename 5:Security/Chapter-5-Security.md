@@ -1752,3 +1752,26 @@ different security controls.
 <p align="center">
 Figure 5‑28: NSX Firewall For all Deployment Scenario
 </p>
+
+## 5.14 NSX Tagging Best Practices
+ 
+
+### 5.14.1 NSX Tagging - Multiple Tags vs Combined-Tags
+
+Combined Tag helps to:
+a)Have more Metadata on to an NSX object
+b)Indirectly one can insert more tags than 30 NSX Tag, which is the tag limit per object
+c)Similarly, can have more than 5 AND/OR GROUP criteria indirectly, which is the limit otherwise
+d)Combined tags simplify Tagging & Grouping definition workflow
+
+However,
+a) Need to be planned well & less flexible if tag needs to be updated 
+b) Also need to use group regex (contains/starts-with/end-with) match criteria to build broader group, unlike with multiple tags where group definition always use && operator
+
+<p align="center">
+    <img src="images/Figure5-29.png">
+</p>
+<p align="center">
+Figure 5‑29: NSX Tagging - Multiple Tags vs Combined-Tags
+</p>
+
