@@ -1769,7 +1769,7 @@ a) Need to be planned well & less flexible if tag needs to be updated
 b) Also need to use group regex (contains/starts-with/end-with) match criteria to build broader group, unlike with multiple tags where group definition always use && operator
 
 <p align="center">
-    <img src="images/Figure5-29.png">
+    <img src="images/Figure-5-29.png">
 </p>
 <p align="center">
 Figure 5‑29: NSX Tagging - Multiple Tags vs Combined-Tags
